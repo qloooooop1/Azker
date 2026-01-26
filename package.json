@@ -1,0 +1,41 @@
+{
+“name”: “islamic-telegram-bot”,
+“version”: “2.0.0”,
+“description”: “Islamic Telegram Bot with Azkar, Quran, and AI features”,
+“main”: “index.js”,
+“scripts”: {
+“start”: “node index.js”,
+“dev”: “nodemon index.js”,
+“test”: “echo "No tests yet" && exit 0”
+},
+“keywords”: [
+“telegram”,
+“bot”,
+“islamic”,
+“quran”,
+“azkar”,
+“muslim”,
+“ramadan”,
+“prayer”
+],
+“author”: “dev3bod”,
+“license”: “MIT”,
+“dependencies”: {
+“node-telegram-bot-api”: “^0.66.0”,
+“axios”: “^1.6.7”,
+“node-cron”: “^3.0.3”,
+“moment-timezone”: “^0.5.45”,
+“moment-hijri”: “^2.30.0”,
+“dotenv”: “^16.4.1”,
+“@huggingface/inference”: “^2.6.4”,
+“express”: “^4.18.2”,
+“node-cache”: “^5.1.2”
+},
+“devDependencies”: {
+“nodemon”: “^3.0.3”
+},
+“engines”: {
+“node”: “>=18.0.0”,
+“npm”: “>=9.0.0”
+}
+}
