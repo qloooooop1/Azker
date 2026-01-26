@@ -4,12 +4,14 @@ const axios = require('axios');
 const cron = require('node-cron');
 const moment = require('moment-timezone');
 const express = require('express');
+const fs = require('fs').promises;
+const path = require('path');
 
 // ==================== CONFIGURATION ====================
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const DATABASE_CHANNEL_ID = parseInt(process.env.DATABASE_CHANNEL_ID);
-const OFFICIAL_GROUP_ID = parseInt(process.env.OFFICIAL_GROUP_ID);
-const DEVELOPER_ID = parseInt(process.env.DEVELOPER_ID);
+const DATABASE_CHANNEL_ID = parseInt(process.env.DATABASE_CHANNEL_ID || '0');
+const OFFICIAL_GROUP_ID = parseInt(process.env.OFFICIAL_GROUP_ID || '0');
+const DEVELOPER_ID = parseInt(process.env.DEVELOPER_ID || '0');
 const PORT = process.env.PORT || 3000;
 
 // Initialize bot
@@ -24,29 +26,69 @@ app.listen(PORT, () => {
     console.log(`✅ Keep-alive server running on port ${PORT}`);
 });
 
-// ==================== DATA STORAGE ====================
-const groupSettings = new Map();
+// ==================== SETTINGS STORAGE (دائم بملف JSON) ====================
+const SETTINGS_FILE = path.join(__dirname, 'settings.json');
+
+let allSettings = {}; // { chatId: { ...settings } }
+
+async function loadAllSettings() {
+    try {
+        const data = await fs.readFile(SETTINGS_FILE, 'utf8');
+        allSettings = JSON.parse(data);
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            allSettings = {};
+        } else {
+            console.error('خطأ في قراءة settings.json:', err);
+        }
+    }
+}
+
+async function saveAllSettings() {
+    try {
+        await fs.writeFile(SETTINGS_FILE, JSON.stringify(allSettings, null, 2), 'utf8');
+    } catch (err) {
+        console.error('خطأ في حفظ settings.json:', err);
+    }
+}
+
+// تحميل الإعدادات عند بدء البوت
+loadAllSettings();
 
 const defaultSettings = {
     morningAzkar: { enabled: true, time: '06:00' },
     eveningAzkar: { enabled: true, time: '17:00' },
     periodicAzkar: { enabled: true, interval: 120 },
-    fridayReminder: { enabled: true, time: '11:00' },
-    istijabahHour: { enabled: true },
-    ramadanAzkar: { enabled: true },
-    arafatDay: { enabled: true },
-    eidReminders: { enabled: true },
-    ashuraReminders: { enabled: true },
-    lailatulQadr: { enabled: true },
+    fridayReminder: { enabled: true },
+    ramadan: { enabled: true },
+    arafat: { enabled: true },
+    eid: { enabled: true },
+    ashura: { enabled: true },
     lastTenDays: { enabled: true },
     quranAudio: { enabled: true },
     azkarAudio: { enabled: true },
     eidTakbeer: { enabled: true },
-    aiResponses: { enabled: true },
+    aiResponses: { enabled: true, token: null },
     prayerTimes: { enabled: false },
     lastPeriodicAzkar: null,
-    timezone: 'Asia/Riyadh'
+    timezone: 'Asia/Riyadh',
+    stats: { totalMessages: 0, lastActive: null }
 };
+
+function getGroupSettings(chatId) {
+    if (!allSettings[chatId]) {
+        allSettings[chatId] = JSON.parse(JSON.stringify(defaultSettings));
+        saveAllSettings();
+    }
+    return allSettings[chatId];
+}
+
+function updateGroupSettings(chatId, updates) {
+    const settings = getGroupSettings(chatId);
+    Object.assign(settings, updates);
+    allSettings[chatId] = settings;
+    saveAllSettings();
+}
 
 // ==================== API SOURCES ====================
 const API_SOURCES = {
@@ -59,24 +101,11 @@ const API_SOURCES = {
 };
 
 // ==================== HELPER FUNCTIONS ====================
-async function getGroupSettings(chatId) {
-    if (!groupSettings.has(chatId)) {
-        groupSettings.set(chatId, JSON.parse(JSON.stringify(defaultSettings)));
-    }
-    return groupSettings.get(chatId);
-}
-
-async function updateGroupSettings(chatId, updates) {
-    const settings = await getGroupSettings(chatId);
-    Object.assign(settings, updates);
-    groupSettings.set(chatId, settings);
-}
-
 async function isAdmin(chatId, userId) {
     try {
         const member = await bot.getChatMember(chatId, userId);
         return ['creator', 'administrator'].includes(member.status);
-    } catch (error) {
+    } catch {
         return false;
     }
 }
@@ -85,19 +114,11 @@ async function fetchAzkar(type) {
     try {
         let url;
         switch (type) {
-            case 'morning':
-                url = API_SOURCES.azkarSabah;
-                break;
-            case 'evening':
-                url = API_SOURCES.azkarMassa;
-                break;
-            case 'prayer':
-                url = API_SOURCES.azkarPostPrayer;
-                break;
-            default:
-                url = API_SOURCES.azkarSabah;
+            case 'morning': url = API_SOURCES.azkarSabah; break;
+            case 'evening': url = API_SOURCES.azkarMassa; break;
+            case 'prayer': url = API_SOURCES.azkarPostPrayer; break;
+            default: url = API_SOURCES.azkarSabah;
         }
-
         const response = await axios.get(url);
         return response.data;
     } catch (error) {
@@ -108,62 +129,30 @@ async function fetchAzkar(type) {
 
 function formatAzkarMessage(azkar, title) {
     let message = `🌙 *${title}* 🌙\n\n`;
-
     if (Array.isArray(azkar)) {
         const items = azkar.slice(0, 10);
         items.forEach((item, index) => {
             const text = item.zekr || item.ARABIC || item.text || item.content || item.category || 'غير متوفر';
             const count = item.repeat || item.REPEAT || item.count || 1;
-
             if (text.trim()) {
                 message += `${index + 1}. ${text}\n`;
-                if (count > 1) {
-                    message += `   🔢 التكرار: ${count} مرة\n`;
-                }
+                if (count > 1) message += `   🔢 التكرار: ${count} مرة\n`;
                 message += '\n';
             }
         });
-    } else if (azkar && typeof azkar === 'object') {
-        message += JSON.stringify(azkar, null, 2);
     }
-
     message += '\n📿 *حصن المسلم*';
     return message;
 }
 
-// ==================== ISLAMIC CALENDAR (تقريبي) ====================
+// ==================== ISLAMIC CALENDAR (تقريبي لكن يعمل) ====================
 function getIslamicDate() {
     const now = new Date();
-    const islamicYear = Math.floor((now.getFullYear() - 622) * 1.030684);
-    const month = Math.floor(Math.random() * 12) + 1;
-    const day = Math.floor(Math.random() * 29) + 1;
+    const gregorianYear = now.getFullYear();
+    const islamicYear = Math.floor((gregorianYear - 622) * 1.030684);
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
     return { year: islamicYear, month, day };
-}
-
-function isRamadan() {
-    const islamic = getIslamicDate();
-    return islamic.month === 9;
-}
-
-function isLastTenDaysRamadan() {
-    const islamic = getIslamicDate();
-    return islamic.month === 9 && islamic.day >= 20;
-}
-
-function isArafatDay() {
-    const islamic = getIslamicDate();
-    return islamic.month === 12 && islamic.day === 9;
-}
-
-function isEidDay() {
-    const islamic = getIslamicDate();
-    return (islamic.month === 10 && islamic.day === 1) ||
-           (islamic.month === 12 && islamic.day === 10);
-}
-
-function isAshuraDay() {
-    const islamic = getIslamicDate();
-    return islamic.month === 1 && islamic.day === 10;
 }
 
 // ==================== KEYBOARDS ====================
@@ -182,15 +171,15 @@ async function getMainKeyboard() {
 }
 
 async function getSettingsKeyboard(chatId) {
+    const settings = getGroupSettings(chatId);
     return {
         inline_keyboard: [
-            [{ text: '🌅 أذكار الصباح والمساء', callback_data: `settings_daily_${chatId}` }],
-            [{ text: '🔄 الأذكار الدورية', callback_data: `settings_periodic_${chatId}` }],
-            [{ text: '📅 تذكيرات الجمعة', callback_data: `settings_friday_${chatId}` }],
-            [{ text: '🌙 أذكار رمضان', callback_data: `settings_ramadan_${chatId}` }],
-            [{ text: '⛰ مناسبات خاصة', callback_data: `settings_occasions_${chatId}` }],
+            [{ text: `🌅 أذكار الصباح والمساء ${settings.morningAzkar.enabled || settings.eveningAzkar.enabled ? '✅' : '☑️'}`, callback_data: `settings_daily_${chatId}` }],
+            [{ text: `🔄 الأذكار الدورية ${settings.periodicAzkar.enabled ? '✅' : '☑️'}`, callback_data: `settings_periodic_${chatId}` }],
+            [{ text: `📅 تذكيرات الجمعة ${settings.fridayReminder.enabled ? '✅' : '☑️'}`, callback_data: `settings_friday_${chatId}` }],
+            [{ text: `🌙 رمضان والمناسبات ${settings.ramadan.enabled || settings.arafat.enabled || settings.eid.enabled ? '✅' : '☑️'}`, callback_data: `settings_occasions_${chatId}` }],
             [{ text: '🎵 إعدادات الصوت', callback_data: `settings_audio_${chatId}` }],
-            [{ text: '🤖 الذكاء الاصطناعي', callback_data: `settings_ai_${chatId}` }],
+            [{ text: `🤖 الذكاء الاصطناعي ${settings.aiResponses.enabled ? '✅' : '☑️'}`, callback_data: `settings_ai_${chatId}` }],
             [{ text: '📊 الإحصائيات', callback_data: `stats_${chatId}` }],
             [{ text: '🔙 رجوع', callback_data: 'main_menu' }]
         ]
@@ -224,7 +213,6 @@ bot.onText(/\/start/, async (msg) => {
         });
     } else {
         const isUserAdmin = await isAdmin(chatId, userId);
-        
         if (isUserAdmin) {
             try {
                 await bot.sendMessage(userId, 
@@ -280,123 +268,53 @@ bot.onText(/\/settings/, async (msg) => {
     }
 });
 
-bot.onText(/\/quran/, async (msg) => {
-    const chatId = msg.chat.id;
-
-    const keyboard = {
-        inline_keyboard: [
-            [{ text: '📖 سورة البقرة', callback_data: 'quran_2' },
-             { text: '📖 سورة آل عمران', callback_data: 'quran_3' }],
-            [{ text: '📖 سورة الكهف', callback_data: 'quran_18' },
-             { text: '📖 سورة يس', callback_data: 'quran_36' }],
-            [{ text: '📖 سورة الرحمن', callback_data: 'quran_55' },
-             { text: '📖 سورة الواقعة', callback_data: 'quran_56' }],
-            [{ text: '📖 سورة الملك', callback_data: 'quran_67' }]
-        ]
-    };
-
-    bot.sendMessage(chatId, '📖 *القرآن الكريم*\n\nاختر السورة:', {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard
-    });
-});
-
-bot.onText(/\/azkar/, async (msg) => {
-    const chatId = msg.chat.id;
-
-    const keyboard = {
-        inline_keyboard: [
-            [{ text: '🌅 أذكار الصباح', callback_data: 'azkar_morning' }],
-            [{ text: '🌙 أذكار المساء', callback_data: 'azkar_evening' }],
-            [{ text: '🕌 أذكار بعد الصلاة', callback_data: 'azkar_prayer' }],
-            [{ text: '🛏 أذكار النوم', callback_data: 'azkar_sleep' }]
-        ]
-    };
-
-    bot.sendMessage(chatId, '📿 *الأذكار*\n\nاختر نوع الذكر:', {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard
-    });
-});
-
-bot.onText(/\/help/, async (msg) => {
-    const helpMessage =
-`📚 *دليل استخدام البوت*\n\n` +
-`*الأوامر المتاحة:*\n` +
-`/start - البدء مع البوت\n` +
-`/quran - تصفح القرآن الكريم\n` +
-`/azkar - الأذكار\n` +
-`/settings - لوحة التحكم (للمدراء)\n` +
-`/help - المساعدة\n\n` +
-`*للمدراء:*\n` +
-`• استخدم /start في المجموعة لفتح لوحة التحكم\n` +
-`• يمكنك تخصيص جميع الإعدادات\n` +
-`• تفعيل/إلغاء أي ميزة\n\n` +
-`*الدعم الفني:*\n` +
-`@dev3bod\n\n` +
-`_جزاكم الله خيراً_ 🤲`;
-
-    bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
-});
-
 // ==================== CALLBACK HANDLERS ====================
 bot.on('callback_query', async (query) => {
     const data = query.data;
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
+    const userId = query.from.id;
 
     const groupIdMatch = data.match(/_(-?\d+)$/);
     const groupId = groupIdMatch ? parseInt(groupIdMatch[1]) : chatId;
 
     try {
         if (data === 'main_menu') {
-            await bot.editMessageText(
-                '🌟 *القائمة الرئيسية*\n\nاختر ما تريد:', 
-                {
-                    chat_id: chatId,
-                    message_id: messageId,
-                    parse_mode: 'Markdown',
-                    reply_markup: await getMainKeyboard()
-                }
-            );
+            await bot.editMessageText('🌟 *القائمة الرئيسية*\n\nاختر ما تريد:', {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: await getMainKeyboard()
+            });
         }
-        
+
         else if (data.startsWith('azkar_')) {
             const type = data.split('_')[1];
             let azkarType = 'morning';
             let title = 'أذكار الصباح';
-            
-            if (type === 'evening') {
-                azkarType = 'evening';
-                title = 'أذكار المساء';
-            } else if (type === 'prayer') {
-                azkarType = 'prayer';
-                title = 'أذكار بعد الصلاة';
-            }
-            
+            if (type === 'evening') { azkarType = 'evening'; title = 'أذكار المساء'; }
+            if (type === 'prayer') { azkarType = 'prayer'; title = 'أذكار بعد الصلاة'; }
+
             const azkar = await fetchAzkar(azkarType);
             if (azkar) {
                 const message = formatAzkarMessage(azkar, title);
                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            } else {
+                await bot.sendMessage(chatId, 'تعذر جلب الأذكار حالياً');
             }
         }
-        
+
         else if (data.startsWith('settings_daily_')) {
-            const settings = await getGroupSettings(groupId);
+            const settings = getGroupSettings(groupId);
             const keyboard = {
                 inline_keyboard: [
-                    [{ text: settings.morningAzkar.enabled ? '✅ أذكار الصباح' : '☑️ أذكار الصباح', 
-                       callback_data: `toggle_morning_${groupId}` }],
-                    [{ text: `⏰ وقت: ${settings.morningAzkar.time}`, 
-                       callback_data: `time_morning_${groupId}` }],
-                    [{ text: settings.eveningAzkar.enabled ? '✅ أذكار المساء' : '☑️ أذكار المساء', 
-                       callback_data: `toggle_evening_${groupId}` }],
-                    [{ text: `⏰ وقت: ${settings.eveningAzkar.time}`, 
-                       callback_data: `time_evening_${groupId}` }],
+                    [{ text: settings.morningAzkar.enabled ? '✅ أذكار الصباح' : '☑️ أذكار الصباح', callback_data: `toggle_morning_${groupId}` }],
+                    [{ text: `⏰ وقت: ${settings.morningAzkar.time}`, callback_data: `time_morning_${groupId}` }],
+                    [{ text: settings.eveningAzkar.enabled ? '✅ أذكار المساء' : '☑️ أذكار المساء', callback_data: `toggle_evening_${groupId}` }],
+                    [{ text: `⏰ وقت: ${settings.eveningAzkar.time}`, callback_data: `time_evening_${groupId}` }],
                     [{ text: '🔙 رجوع', callback_data: `back_to_settings_${groupId}` }]
                 ]
             };
-            
             await bot.editMessageText('🌅 *إعدادات أذكار الصباح والمساء*', {
                 chat_id: chatId,
                 message_id: messageId,
@@ -404,44 +322,94 @@ bot.on('callback_query', async (query) => {
                 reply_markup: keyboard
             });
         }
-        
-        else if (data.startsWith('settings_periodic_')) {
-            const settings = await getGroupSettings(groupId);
+
+        else if (data.startsWith('toggle_morning_') || data.startsWith('toggle_evening_')) {
+            const settings = getGroupSettings(groupId);
+            const isMorning = data.includes('morning');
+            const key = isMorning ? 'morningAzkar' : 'eveningAzkar';
+            settings[key].enabled = !settings[key].enabled;
+            updateGroupSettings(groupId, settings);
+            await bot.answerCallbackQuery(query.id, { text: settings[key].enabled ? 'تم التفعيل' : 'تم الإيقاف' });
+            bot.emit('callback_query', { ...query, data: `settings_daily_${groupId}` });
+        }
+
+        else if (data.startsWith('settings_occasions_')) {
+            const settings = getGroupSettings(groupId);
             const keyboard = {
                 inline_keyboard: [
-                    [{ text: settings.periodicAzkar.enabled ? '✅ الأذكار الدورية' : '☑️ الأذكار الدورية', 
-                       callback_data: `toggle_periodic_${groupId}` }],
-                    [{ text: `⏱ الفاصل: ${settings.periodicAzkar.interval} دقيقة`, 
-                       callback_data: `interval_info_${groupId}` }],
-                    [{ text: '➖ تقليل', callback_data: `interval_decrease_${groupId}` },
-                     { text: '➕ زيادة', callback_data: `interval_increase_${groupId}` }],
+                    [{ text: settings.ramadan.enabled ? '✅ رمضان' : '☑️ رمضان', callback_data: `toggle_ramadan_${groupId}` }],
+                    [{ text: settings.arafat.enabled ? '✅ يوم عرفة' : '☑️ يوم عرفة', callback_data: `toggle_arafat_${groupId}` }],
+                    [{ text: settings.eid.enabled ? '✅ الأعياد' : '☑️ الأعياد', callback_data: `toggle_eid_${groupId}` }],
+                    [{ text: settings.ashura.enabled ? '✅ عاشوراء' : '☑️ عاشوراء', callback_data: `toggle_ashura_${groupId}` }],
+                    [{ text: settings.lastTenDays.enabled ? '✅ العشر الأواخر' : '☑️ العشر الأواخر', callback_data: `toggle_lastTen_${groupId}` }],
                     [{ text: '🔙 رجوع', callback_data: `back_to_settings_${groupId}` }]
                 ]
             };
-            
-            await bot.editMessageText('🔄 *إعدادات الأذكار الدورية*', {
+            await bot.editMessageText('🌙 *إعدادات المناسبات الدينية*', {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
                 reply_markup: keyboard
             });
         }
-        
-        else if (data.startsWith('settings_ai_')) {
-            const settings = await getGroupSettings(groupId);
+
+        else if (data.startsWith('toggle_ramadan_') || data.startsWith('toggle_arafat_') ||
+                 data.startsWith('toggle_eid_') || data.startsWith('toggle_ashura_') ||
+                 data.startsWith('toggle_lastTen_')) {
+            const settings = getGroupSettings(groupId);
+            let key;
+            if (data.includes('ramadan')) key = 'ramadan';
+            else if (data.includes('arafat')) key = 'arafat';
+            else if (data.includes('eid')) key = 'eid';
+            else if (data.includes('ashura')) key = 'ashura';
+            else if (data.includes('lastTen')) key = 'lastTenDays';
+
+            settings[key].enabled = !settings[key].enabled;
+            updateGroupSettings(groupId, settings);
+            await bot.answerCallbackQuery(query.id, { text: settings[key].enabled ? 'تم التفعيل' : 'تم الإيقاف' });
+            bot.emit('callback_query', { ...query, data: `settings_occasions_${groupId}` });
+        }
+
+        else if (data.startsWith('settings_friday_')) {
+            const settings = getGroupSettings(groupId);
             const keyboard = {
                 inline_keyboard: [
-                    [{ text: settings.aiResponses.enabled ? '✅ الذكاء الاصطناعي' : '☑️ الذكاء الاصطناعي', 
-                       callback_data: `toggle_ai_${groupId}` }],
-                    [{ text: '💡 كيفية الحصول على API مجاني', callback_data: `ai_help_${groupId}` }],
+                    [{ text: settings.fridayReminder.enabled ? '✅ مفعّل' : '☑️ معطّل', callback_data: `toggle_friday_${groupId}` }],
                     [{ text: '🔙 رجوع', callback_data: `back_to_settings_${groupId}` }]
                 ]
             };
-            
+            await bot.editMessageText('📅 *إعدادات تذكيرات الجمعة*', {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: keyboard
+            });
+        }
+
+        else if (data.startsWith('toggle_friday_')) {
+            const settings = getGroupSettings(groupId);
+            settings.fridayReminder.enabled = !settings.fridayReminder.enabled;
+            updateGroupSettings(groupId, settings);
+            await bot.answerCallbackQuery(query.id, { text: settings.fridayReminder.enabled ? 'تم التفعيل' : 'تم الإيقاف' });
+            bot.emit('callback_query', { ...query, data: `settings_friday_${groupId}` });
+        }
+
+        else if (data.startsWith('settings_ai_')) {
+            const settings = getGroupSettings(groupId);
+            const hasToken = !!settings.aiResponses.token;
+            const status = settings.aiResponses.enabled ? 'مفعّل' : 'معطّل';
+            const keyboard = {
+                inline_keyboard: [
+                    [{ text: status, callback_data: `toggle_ai_${groupId}` }],
+                    [{ text: hasToken ? '🔄 تغيير المفتاح' : '➕ إضافة مفتاح Hugging Face', callback_data: `set_ai_key_${groupId}` }],
+                    [{ text: '🔙 رجوع', callback_data: `back_to_settings_${groupId}` }]
+                ]
+            };
             await bot.editMessageText(
-                '🤖 *إعدادات الذكاء الاصطناعي*\n\n' +
-                'يستخدم البوت مكتبات AI مفتوحة المصدر\n' +
-                'للحصول على ردود ذكية على الأسئلة الدينية',
+                `🤖 *إعدادات الذكاء الاصطناعي*\n\n` +
+                `الحالة: ${status}\n` +
+                `المفتاح: ${hasToken ? '✔ موجود' : '✖ غير موجود'}\n\n` +
+                'اختر خيار:',
                 {
                     chat_id: chatId,
                     message_id: messageId,
@@ -450,80 +418,39 @@ bot.on('callback_query', async (query) => {
                 }
             );
         }
-        
-        else if (data.startsWith('ai_help_')) {
-            const helpText = 
-                `🤖 *كيفية الحصول على API مجاني للذكاء الاصطناعي*\n\n` +
-                `*خيار 1: Hugging Face (موصى به)*\n` +
-                `1. اذهب إلى: https://huggingface.co\n` +
-                `2. سجل حساب مجاني\n` +
-                `3. اذهب إلى Settings → Access Tokens\n` +
-                `4. أنشئ Token جديد\n` +
-                `5. انسخ المفتاح وضعه في إعدادات المجموعة\n\n` +
-                `*خيار 2: استخدام البوت بدون AI*\n` +
-                `يمكنك استخدام جميع الميزات الأخرى بدون AI\n\n` +
-                `_للمزيد من المساعدة: @dev3bod_`;
-            
-            await bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' });
+
+        else if (data.startsWith('toggle_ai_')) {
+            const settings = getGroupSettings(groupId);
+            settings.aiResponses.enabled = !settings.aiResponses.enabled;
+            updateGroupSettings(groupId, settings);
+            await bot.answerCallbackQuery(query.id, { text: settings.aiResponses.enabled ? 'تم التفعيل' : 'تم الإيقاف' });
+            bot.emit('callback_query', { ...query, data: `settings_ai_${groupId}` });
         }
-        
-        else if (data.startsWith('toggle_')) {
-            const parts = data.split('_');
-            const feature = parts[1];
-            const gId = parseInt(parts[2]);
-            const settings = await getGroupSettings(gId);
-            
-            const featureMap = {
-                'morning': 'morningAzkar',
-                'evening': 'eveningAzkar',
-                'periodic': 'periodicAzkar',
-                'ai': 'aiResponses'
-            };
-            
-            if (featureMap[feature]) {
-                settings[featureMap[feature]].enabled = !settings[featureMap[feature]].enabled;
-                await updateGroupSettings(gId, settings);
-                
-                await bot.answerCallbackQuery(query.id, {
-                    text: `✅ تم ${settings[featureMap[feature]].enabled ? 'تفعيل' : 'إيقاف'} الخاصية`
-                });
-                
-                const menuType = data.includes('morning') || data.includes('evening') ? 'daily' : 
-                                data.includes('periodic') ? 'periodic' : 'ai';
-                bot.emit('callback_query', { 
-                    ...query, 
-                    data: `settings_${menuType}_${gId}` 
-                });
-            }
+
+        else if (data.startsWith('set_ai_key_')) {
+            await bot.answerCallbackQuery(query.id);
+            await bot.sendMessage(userId,
+                `📤 أرسل مفتاح Hugging Face الآن (يبدأ بـ hf_)\n\n` +
+                `سيتم حفظه خصيصاً لهذه المجموعة (${groupId})`
+            );
+            // سيتم التقاط المفتاح في on('message')
         }
-        
-        else if (data.startsWith('interval_')) {
-            const action = data.split('_')[1];
-            const gId = parseInt(data.split('_')[2]);
-            const settings = await getGroupSettings(gId);
-            
-            if (action === 'increase') {
-                settings.periodicAzkar.interval += 30;
-                await updateGroupSettings(gId, settings);
-                await bot.answerCallbackQuery(query.id, {
-                    text: `✅ تم زيادة الفاصل إلى ${settings.periodicAzkar.interval} دقيقة`
-                });
-            } else if (action === 'decrease' && settings.periodicAzkar.interval > 30) {
-                settings.periodicAzkar.interval -= 30;
-                await updateGroupSettings(gId, settings);
-                await bot.answerCallbackQuery(query.id, {
-                    text: `✅ تم تقليل الفاصل إلى ${settings.periodicAzkar.interval} دقيقة`
-                });
-            } else {
-                await bot.answerCallbackQuery(query.id, {
-                    text: '⚠️ الحد الأدنى 30 دقيقة',
-                    show_alert: true
-                });
-            }
-            
-            bot.emit('callback_query', { ...query, data: `settings_periodic_${gId}` });
+
+        else if (data.startsWith('stats_')) {
+            const settings = getGroupSettings(groupId);
+            const totalGroups = Object.keys(allSettings).length;
+            const activeFeatures = Object.values(settings).filter(v => v?.enabled).length;
+
+            const statsMsg = 
+                `📊 *إحصائيات المجموعة*\n\n` +
+                `• عدد المجموعات المسجلة: ${totalGroups}\n` +
+                `• الميزات المفعلة: ${activeFeatures} من ${Object.keys(defaultSettings).length}\n` +
+                `• آخر نشاط: ${settings.stats?.lastActive || 'غير معروف'}\n` +
+                `• إجمالي الرسائل المرسلة: ${settings.stats?.totalMessages || 0}`;
+
+            await bot.sendMessage(chatId, statsMsg, { parse_mode: 'Markdown' });
         }
-        
+
         else if (data.startsWith('back_to_settings_')) {
             const gId = parseInt(data.split('_')[3]);
             await bot.editMessageText('⚙️ *لوحة التحكم الرئيسية*', {
@@ -533,52 +460,86 @@ bot.on('callback_query', async (query) => {
                 reply_markup: await getSettingsKeyboard(gId)
             });
         }
-        
+
         await bot.answerCallbackQuery(query.id);
-        
+
     } catch (error) {
         console.error('Callback error:', error.message);
-        bot.answerCallbackQuery(query.id, { text: '❌ حدث خطأ' });
+        bot.answerCallbackQuery(query.id, { text: '❌ حدث خطأ', show_alert: true });
     }
+});
+
+// ==================== حفظ مفتاح AI من الرسائل الخاصة ====================
+bot.on('message', async (msg) => {
+    if (msg.chat.type !== 'private') return;
+    if (!msg.text || !msg.text.startsWith('hf_') || msg.text.length < 30) return;
+
+    // نفترض أن آخر طلب مفتاح كان من هذا المستخدم
+    // (يمكن تحسينه بـ state لاحقاً)
+    await bot.sendMessage(msg.chat.id, 'تم استلام المفتاح!\n\n' +
+        'للحفظ في مجموعة معينة، أرسل في المجموعة الأمر:\n' +
+        `/setaikey ${msg.text}`
+    );
+});
+
+// أمر حفظ المفتاح داخل المجموعة
+bot.onText(/\/setaikey (.+)/, async (msg, match) => {
+    if (msg.chat.type === 'private') return;
+    const chatId = msg.chat.id;
+    const token = match[1].trim();
+
+    if (!(await isAdmin(chatId, msg.from.id))) {
+        return bot.sendMessage(chatId, 'هذا الأمر للمشرفين فقط');
+    }
+
+    if (!token.startsWith('hf_')) {
+        return bot.sendMessage(chatId, 'المفتاح يجب أن يبدأ بـ hf_');
+    }
+
+    const settings = getGroupSettings(chatId);
+    settings.aiResponses.token = token;
+    updateGroupSettings(chatId, settings);
+
+    bot.sendMessage(chatId, 'تم حفظ مفتاح Hugging Face بنجاح لهذه المجموعة');
 });
 
 // ==================== SCHEDULED TASKS ====================
 
-// Morning Azkar - 6:00 AM
+// أذكار الصباح - 6:00 صباحاً
 cron.schedule('0 6 * * *', async () => {
-    console.log('⏰ Sending morning azkar…');
-    for (const [chatId, settings] of groupSettings.entries()) {
-        if (settings.morningAzkar.enabled) {
+    console.log('⏰ إرسال أذكار الصباح...');
+    for (const [chatId, settings] of Object.entries(allSettings)) {
+        if (settings.morningAzkar?.enabled) {
             const azkar = await fetchAzkar('morning');
             if (azkar) {
                 const message = formatAzkarMessage(azkar, 'أذكار الصباح ☀️');
                 bot.sendMessage(chatId, message, { parse_mode: 'Markdown' })
-                    .catch(err => console.log(`Failed to send to ${chatId}:`, err.message));
+                    .catch(err => console.log(`فشل الإرسال إلى ${chatId}:`, err.message));
             }
         }
     }
 }, { timezone: 'Asia/Riyadh' });
 
-// Evening Azkar - 5:00 PM
+// أذكار المساء - 5:00 مساءً
 cron.schedule('0 17 * * *', async () => {
-    console.log('⏰ Sending evening azkar…');
-    for (const [chatId, settings] of groupSettings.entries()) {
-        if (settings.eveningAzkar.enabled) {
+    console.log('⏰ إرسال أذكار المساء...');
+    for (const [chatId, settings] of Object.entries(allSettings)) {
+        if (settings.eveningAzkar?.enabled) {
             const azkar = await fetchAzkar('evening');
             if (azkar) {
                 const message = formatAzkarMessage(azkar, 'أذكار المساء 🌙');
                 bot.sendMessage(chatId, message, { parse_mode: 'Markdown' })
-                    .catch(err => console.log(`Failed to send to ${chatId}:`, err.message));
+                    .catch(err => console.log(`فشل الإرسال إلى ${chatId}:`, err.message));
             }
         }
     }
 }, { timezone: 'Asia/Riyadh' });
 
-// Friday Reminder - Surah Al-Kahf - 11:00 AM
+// تذكير الجمعة - 11:00 صباحاً يوم الجمعة
 cron.schedule('0 11 * * 5', async () => {
-    console.log('📖 Friday: Sending Surah Al-Kahf reminder…');
-    for (const [chatId, settings] of groupSettings.entries()) {
-        if (settings.fridayReminder.enabled) {
+    console.log('📖 إرسال تذكير الجمعة...');
+    for (const [chatId, settings] of Object.entries(allSettings)) {
+        if (settings.fridayReminder?.enabled) {
             const message =
                 `📖 *تذكير بقراءة سورة الكهف* 📖\n\n` +
                 `"مَنْ قَرَأَ سُورَةَ الكَهْفِ يَوْمَ الجُمُعَةِ أَضَاءَ لَهُ مِنَ النُّورِ مَا بَيْنَ الجُمُعَتَيْنِ"\n\n` +
@@ -586,30 +547,30 @@ cron.schedule('0 11 * * 5', async () => {
                 `🤲 والإكثار من الصلاة على النبي ﷺ`;
 
             bot.sendMessage(chatId, message, { parse_mode: 'Markdown' })
-                .catch(err => console.log(`Failed to send to ${chatId}:`, err.message));
+                .catch(err => console.log(`فشل الإرسال إلى ${chatId}:`, err.message));
         }
     }
 }, { timezone: 'Asia/Riyadh' });
 
-// Periodic Azkar checker - Every minute
+// الأذكار الدورية (كل interval دقيقة)
 setInterval(async () => {
     const now = moment().tz('Asia/Riyadh');
-    for (const [chatId, settings] of groupSettings.entries()) {
-        if (settings.periodicAzkar.enabled) {
+    for (const [chatId, settings] of Object.entries(allSettings)) {
+        if (settings.periodicAzkar?.enabled) {
             const last = settings.lastPeriodicAzkar ? moment(settings.lastPeriodicAzkar) : null;
             if (!last || now.diff(last, 'minutes') >= settings.periodicAzkar.interval) {
-                const azkar = await fetchAzkar('morning'); // يمكنك تنويع المصدر لاحقاً
+                const azkar = await fetchAzkar('morning');
                 if (azkar) {
                     const message = formatAzkarMessage(azkar, 'ذكر دوري 📿');
                     bot.sendMessage(chatId, message, { parse_mode: 'Markdown' })
-                        .catch(err => console.log(`Periodic failed ${chatId}:`, err.message));
+                        .catch(err => console.log(`فشل الإرسال الدوري إلى ${chatId}:`, err.message));
 
                     settings.lastPeriodicAzkar = now.toISOString();
-                    groupSettings.set(chatId, settings);
+                    updateGroupSettings(chatId, settings);
                 }
             }
         }
     }
-}, 60000);  // فحص كل دقيقة
+}, 60000);
 
 console.log('🤖 البوت بدأ بنجاح');
