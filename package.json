@@ -1,14 +1,13 @@
 {
   "name": "telegram-islamic-bot",
-  "version": "3.0.0",
-  "description": "Telegram bot for Islamic reminders and notifications",
+  "version": "4.0.0",
+  "description": "نظام متكامل لإدارة الأذكار الإسلامية عبر تليجرام",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "setup": "node scripts/setup.js",
-    "bot": "node bot.js",
-    "audit-fix": "npm audit fix --force",
+    "setup": "node scripts/init-db.js",
+    "backup": "node scripts/backup.js",
     "test": "echo \"No tests specified\" && exit 0"
   },
   "keywords": [
@@ -17,7 +16,8 @@
     "islamic",
     "adhkar",
     "quran",
-    "reminders"
+    "reminders",
+    "arabic"
   ],
   "author": "dev3bod",
   "license": "MIT",
@@ -26,18 +26,19 @@
     "url": "https://github.com/qloooooop1/Azker"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=8.0.0"
+    "node": ">=18.0.0"
   },
   "dependencies": {
-    "telegraf": "^4.16.3",
-    "axios": "^1.7.7",
-    "moment-timezone": "^0.5.45",
-    "fs-extra": "^11.2.0",
-    "dotenv": "^16.4.5",
-    "uuid": "^10.0.0",
     "express": "^4.19.2",
-    "node-cron": "^3.0.3"
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "moment-timezone": "^0.5.45",
+    "node-cron": "^3.0.3",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^10.0.0",
+    "fs-extra": "^11.2.0",
+    "path": "^0.12.7",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
