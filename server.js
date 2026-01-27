@@ -1,434 +1,354 @@
 require('dotenv').config();
+
+console.log(`
+╔══════════════════════════════════════════╗
+║     🕌 بوت الأذكار الإسلامي             ║
+║     الإصدار: 3.0.0                      ║
+║     المطور: @dev3bod                    ║
+║     الوقت: ${new Date().toLocaleString('ar-SA')} ║
+╚══════════════════════════════════════════╝
+`);
+
+// ==================== PART 1: EXPRESS SERVER ====================
 const express = require('express');
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 // إعدادات أساسية
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// تسجيل طلبات الوصول
+// تسجيل الطلبات
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  const timestamp = new Date().toLocaleString('ar-SA');
+  console.log(`[${timestamp}] ${req.method} ${req.url}`);
   next();
 });
 
-// استيراد البوت (مع معالجة الأخطاء)
+// ==================== PART 2: SIMPLE BOT ====================
+let bot = null;
 let botStarted = false;
-try {
-  console.log('🚀 محاولة تحميل البوت...');
-  require('./bot');
-  botStarted = true;
-  console.log('✅ تم تحميل البوت بنجاح');
-} catch (error) {
-  console.error('❌ فشل في تحميل البوت:', error.message);
-  console.error('🔧 سيستمر الخادم للفحص الصحي');
+
+async function initializeBot() {
+  try {
+    console.log('🤖 محاولة تحميل البوت...');
+    
+    // استخدم telegraf بدلاً من node-telegram-bot-api
+    const { Telegraf } = require('telegraf');
+    
+    if (!process.env.BOT_TOKEN) {
+      throw new Error('BOT_TOKEN غير موجود في متغيرات البيئة');
+    }
+    
+    bot = new Telegraf(process.env.BOT_TOKEN);
+    
+    // أمر البداية
+    bot.start((ctx) => {
+      ctx.reply(`
+🕌 *مرحباً بك في بوت الأذكار الإسلامي*
+
+✨ *المميزات:*
+• أذكار الصباح والمساء
+• تذكير سورة الكهف يوم الجمعة
+• المناسبات الإسلامية
+• ملفات صوتية وPDF
+
+👤 المطور: @dev3bod
+      `, { parse_mode: 'Markdown' });
+    });
+    
+    // أمر المساعدة
+    bot.help((ctx) => {
+      ctx.reply(`
+📚 *الأوامر المتاحة:*
+/start - بدء البوت
+/help - المساعدة
+/adhkar - أذكار عشوائية
+/quran - آيات قرآنية
+/pdf - روابط PDF
+/audio - روابط صوتية
+      `, { parse_mode: 'Markdown' });
+    });
+    
+    // أمر الأذكار
+    bot.command('adhkar', (ctx) => {
+      const adhkarList = [
+        'سبحان الله وبحمده، سبحان الله العظيم',
+        'لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير',
+        'اللهم صل على محمد وعلى آل محمد',
+        'أستغفر الله العظيم الذي لا إله إلا هو الحي القيوم وأتوب إليه'
+      ];
+      
+      const randomAdhkar = adhkarList[Math.floor(Math.random() * adhkarList.length)];
+      ctx.reply(`🕌 *ذكر عشوائي:*\n\n${randomAdhkar}`, { parse_mode: 'Markdown' });
+    });
+    
+    // بدء البوت
+    await bot.launch();
+    
+    console.log('✅ تم تشغيل البوت بنجاح!');
+    botStarted = true;
+    
+    // إعلام المطور
+    try {
+      await bot.telegram.sendMessage(
+        process.env.DEVELOPER_ID || '6960704733',
+        `🤖 *تم تشغيل البوت على Render*\n\n` +
+        `🕒 الوقت: ${new Date().toLocaleString('ar-SA')}\n` +
+        `🌐 الرابط: https://islamic-telegram-bot.onrender.com\n` +
+        `✅ الحالة: 🟢 نشط`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (error) {
+      console.log('⚠️ تعذر إعلام المطور:', error.message);
+    }
+    
+    return true;
+    
+  } catch (error) {
+    console.error('❌ فشل في تحميل البوت:', error.message);
+    botStarted = false;
+    return false;
+  }
 }
 
-// صفحة رئيسية محسنة
+// ==================== PART 3: ROUTES ====================
+
+// الصفحة الرئيسية
 app.get('/', (req, res) => {
-  const status = botStarted ? '🟢 نشط' : '🔴 غير نشط';
-  
   res.send(`
-    <!DOCTYPE html>
-    <html dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>بوت الأذكار الإسلامي - حالة النظام</title>
-      <style>
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بوت الأذكار الإسلامي</title>
+    <style>
         * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-          font-family: 'Segoe UI', 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial', sans-serif;
         }
         
         body {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: #333;
-          min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 20px;
+            background: linear-gradient(135deg, #1a2980, #26d0ce);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
         
         .container {
-          width: 100%;
-          max-width: 1000px;
-          background: white;
-          border-radius: 20px;
-          box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
-          overflow: hidden;
+            width: 100%;
+            max-width: 800px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
-        .header {
-          background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-          color: white;
-          padding: 30px;
-          text-align: center;
+        h1 {
+            color: #ffd700;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
         }
         
-        .header h1 {
-          font-size: 2.5em;
-          margin-bottom: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 15px;
+        .status {
+            background: ${botStarted ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)'};
+            border: 2px solid ${botStarted ? '#4CAF50' : '#f44336'};
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 1.2em;
         }
         
-        .header p {
-          font-size: 1.1em;
-          opacity: 0.9;
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
         }
         
-        .status-bar {
-          background: ${botStarted ? '#4CAF50' : '#f44336'};
-          color: white;
-          padding: 15px;
-          text-align: center;
-          font-size: 1.2em;
-          font-weight: bold;
+        .info-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 5px solid #ffd700;
         }
         
-        .content {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 30px;
-          padding: 40px;
-        }
-        
-        @media (max-width: 768px) {
-          .content {
-            grid-template-columns: 1fr;
-          }
-        }
-        
-        .panel {
-          background: #f8f9fa;
-          border-radius: 15px;
-          padding: 25px;
-          border: 1px solid #e9ecef;
-        }
-        
-        .panel h2 {
-          color: #2a5298;
-          margin-bottom: 20px;
-          padding-bottom: 10px;
-          border-bottom: 2px solid #e9ecef;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 15px;
-          margin-top: 20px;
-        }
-        
-        .stat-item {
-          background: white;
-          padding: 15px;
-          border-radius: 10px;
-          text-align: center;
-          border: 1px solid #dee2e6;
-          transition: transform 0.2s;
-        }
-        
-        .stat-item:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-        }
-        
-        .stat-value {
-          font-size: 1.8em;
-          font-weight: bold;
-          color: #1e3c72;
-          margin: 10px 0;
-        }
-        
-        .stat-label {
-          font-size: 0.9em;
-          color: #6c757d;
-        }
-        
-        .info-list {
-          list-style: none;
-        }
-        
-        .info-list li {
-          padding: 12px 0;
-          border-bottom: 1px solid #e9ecef;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        
-        .info-list li:last-child {
-          border-bottom: none;
+        .info-box h3 {
+            color: #ffd700;
+            margin-bottom: 10px;
         }
         
         .api-links {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
         }
         
         .api-link {
-          display: block;
-          background: white;
-          padding: 12px 20px;
-          border-radius: 10px;
-          text-decoration: none;
-          color: #1e3c72;
-          border: 1px solid #dee2e6;
-          transition: all 0.2s;
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            text-decoration: none;
+            transition: all 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
         
         .api-link:hover {
-          background: #1e3c72;
-          color: white;
-          transform: translateX(-5px);
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
         }
         
         .footer {
-          background: #f8f9fa;
-          padding: 25px;
-          text-align: center;
-          border-top: 1px solid #e9ecef;
-          color: #6c757d;
+            margin-top: 40px;
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.8);
         }
         
-        .footer a {
-          color: #1e3c72;
-          text-decoration: none;
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            flex-wrap: wrap;
         }
         
-        .footer a:hover {
-          text-decoration: underline;
+        .stat {
+            text-align: center;
+            padding: 15px;
         }
         
-        .badge {
-          display: inline-block;
-          padding: 5px 10px;
-          border-radius: 20px;
-          font-size: 0.8em;
-          font-weight: bold;
-          margin-left: 10px;
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #ffd700;
         }
         
-        .badge-success {
-          background: #d4edda;
-          color: #155724;
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
         }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🕌 بوت الأذكار الإسلامي</h1>
         
-        .badge-warning {
-          background: #fff3cd;
-          color: #856404;
-        }
-        
-        .badge-info {
-          background: #d1ecf1;
-          color: #0c5460;
-        }
-        
-        .refresh-btn {
-          background: #1e3c72;
-          color: white;
-          border: none;
-          padding: 10px 20px;
-          border-radius: 25px;
-          cursor: pointer;
-          font-size: 1em;
-          margin-top: 20px;
-          transition: background 0.3s;
-        }
-        
-        .refresh-btn:hover {
-          background: #2a5298;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>🕌 بوت الأذكار الإسلامي</h1>
-          <p>نظام إدارة الأذكار والتذكيرات الإسلامية عبر تليجرام</p>
+        <div class="status">
+            ${botStarted ? '✅ البوت يعمل بنجاح' : '⚠️ البوت غير نشط'}
         </div>
         
-        <div class="status-bar">
-          حالة النظام: ${status}
+        <div class="info-grid">
+            <div class="info-box">
+                <h3>📊 معلومات النظام</h3>
+                <p>الإصدار: 3.0.0</p>
+                <p>Node.js: <span id="nodeVersion">${process.version}</span></p>
+                <p>المنفذ: ${PORT}</p>
+                <p>البيئة: ${process.env.NODE_ENV || 'production'}</p>
+            </div>
+            
+            <div class="info-box">
+                <h3>✨ المميزات</h3>
+                <p>• أذكار الصباح والمساء</p>
+                <p>• تذكير سورة الكهف</p>
+                <p>• المناسبات الإسلامية</p>
+                <p>• ملفات صوتية وPDF</p>
+            </div>
+            
+            <div class="info-box">
+                <h3>👤 معلومات الاتصال</h3>
+                <p>المطور: @dev3bod</p>
+                <p>الدعم: ${process.env.DEVELOPER_ID || '6960704733'}</p>
+                <p>المجموعة: @islamic_reminders</p>
+            </div>
         </div>
         
-        <div class="content">
-          <div class="panel">
-            <h2>📊 حالة النظام</h2>
-            <div class="stats-grid">
-              <div class="stat-item">
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number" id="uptime">0</div>
+                <div class="stat-label">ثانية تشغيل</div>
+            </div>
+            
+            <div class="stat">
+                <div class="stat-number" id="memory">0</div>
+                <div class="stat-label">ميجابايت</div>
+            </div>
+            
+            <div class="stat">
+                <div class="stat-number">${botStarted ? '🟢' : '🔴'}</div>
                 <div class="stat-label">حالة البوت</div>
-                <div class="stat-value">${botStarted ? '✅ نشط' : '❌ غير نشط'}</div>
-              </div>
-              
-              <div class="stat-item">
-                <div class="stat-label">وقت التشغيل</div>
-                <div class="stat-value" id="uptime">--:--:--</div>
-              </div>
-              
-              <div class="stat-item">
-                <div class="stat-label">ذاكرة الاستخدام</div>
-                <div class="stat-value" id="memory">0 MB</div>
-              </div>
-              
-              <div class="stat-item">
-                <div class="stat-label">المنفذ</div>
-                <div class="stat-value">${PORT}</div>
-              </div>
             </div>
-            
-            <h2 style="margin-top: 30px;">🛠 نقاط الوصول (API)</h2>
-            <div class="api-links">
-              <a href="/health" class="api-link" target="_blank">✅ /health - فحص صحة النظام</a>
-              <a href="/api/status" class="api-link" target="_blank">📊 /api/status - حالة النظام</a>
-              <a href="/api/env-check" class="api-link" target="_blank">🔧 /api/env-check - فحص المتغيرات</a>
-              <a href="/api/logs" class="api-link" target="_blank">📝 /api/logs - سجلات النظام</a>
-            </div>
-          </div>
-          
-          <div class="panel">
-            <h2>ℹ️ معلومات النظام</h2>
-            <ul class="info-list">
-              <li>
-                <strong>الإصدار:</strong> 2.1.0
-                <span class="badge badge-info">مستقر</span>
-              </li>
-              <li>
-                <strong>Node.js:</strong> <span id="nodeVersion">جاري التحميل...</span>
-              </li>
-              <li>
-                <strong>البيئة:</strong> ${process.env.NODE_ENV || 'غير محدد'}
-              </li>
-              <li>
-                <strong>المنطقة الزمنية:</strong> ${process.env.TIMEZONE || 'Asia/Riyadh'}
-              </li>
-              <li>
-                <strong>المطور:</strong> @dev3bod
-              </li>
-              <li>
-                <strong>الدعم:</strong> ${process.env.DEVELOPER_ID || '6960704733'}
-              </li>
-            </ul>
-            
-            <h2 style="margin-top: 30px;">⚡ إجراءات سريعة</h2>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              <button class="refresh-btn" onclick="location.reload()">🔄 تحديث الصفحة</button>
-              <button class="refresh-btn" onclick="checkHealth()">🔍 فحص الصحة</button>
-              <button class="refresh-btn" onclick="showEnvCheck()">🔧 فحص الإعدادات</button>
-            </div>
-          </div>
+        </div>
+        
+        <div class="api-links">
+            <a href="/health" class="api-link" target="_blank">🩺 فحص الصحة</a>
+            <a href="/api/status" class="api-link" target="_blank">📊 حالة النظام</a>
+            <a href="/api/start-bot" class="api-link" target="_blank">🚀 تشغيل البوت</a>
+            <a href="/api/stop-bot" class="api-link" target="_blank">🛑 إيقاف البوت</a>
         </div>
         
         <div class="footer">
-          <p>© 2024 بوت الأذكار الإسلامي | تم التطوير باستخدام Node.js و Telegram Bot API</p>
-          <p>⚡ يستضاف على <a href="https://render.com" target="_blank">Render</a> | 📞 للدعم: ${process.env.DEVELOPER_ID || '6960704733'}</p>
-          <p id="lastUpdate">آخر تحديث: <span id="timestamp">--:--:--</span></p>
+            <p>© 2024 بوت الأذكار الإسلامي | يستضاف على Render</p>
+            <p>آخر تحديث: <span id="timestamp">${new Date().toLocaleString('ar-SA')}</span></p>
         </div>
-      </div>
-      
-      <script>
-        // تحديث المعلومات الديناميكية
-        function updateDynamicInfo() {
-          // تحديث الوقت
-          const now = new Date();
-          const timeStr = now.toLocaleString('ar-SA', { 
-            timeZone: 'Asia/Riyadh',
-            hour12: true 
-          });
-          document.getElementById('timestamp').textContent = timeStr;
-          
-          // جلب معلومات النظام
-          fetch('/health')
-            .then(response => response.json())
-            .then(data => {
-              // وقت التشغيل
-              if (data.uptime) {
-                const uptime = parseFloat(data.uptime);
-                const hours = Math.floor(uptime / 3600);
-                const minutes = Math.floor((uptime % 3600) / 60);
-                const seconds = Math.floor(uptime % 60);
-                document.getElementById('uptime').textContent = 
-                  `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-              }
-              
-              // استخدام الذاكرة
-              if (data.memory) {
-                const usedMB = Math.round(data.memory.heapUsed / 1024 / 1024);
-                const totalMB = Math.round(data.memory.heapTotal / 1024 / 1024);
-                document.getElementById('memory').textContent = `${usedMB} / ${totalMB} MB`;
-              }
-              
-              // إصدار Node.js
-              if (data.node_version) {
-                document.getElementById('nodeVersion').textContent = data.node_version;
-              }
-            })
-            .catch(error => {
-              console.error('خطأ في جلب معلومات النظام:', error);
-            });
+    </div>
+    
+    <script>
+        // تحديث وقت التشغيل
+        function updateUptime() {
+            const startTime = Date.now();
+            setInterval(() => {
+                const uptime = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('uptime').textContent = uptime;
+            }, 1000);
         }
         
-        // فحص صحة النظام
-        function checkHealth() {
-          fetch('/health')
-            .then(response => response.json())
-            .then(data => {
-              alert('✅ النظام يعمل بشكل جيد\n' + 
-                    'وقت التشغيل: ' + Math.floor(data.uptime) + ' ثانية\n' +
-                    'الذاكرة: ' + Math.round(data.memory.heapUsed / 1024 / 1024) + ' MB');
-            })
-            .catch(error => {
-              alert('❌ خطأ في فحص الصحة: ' + error.message);
-            });
+        // تحديث استخدام الذاكرة
+        function updateMemory() {
+            fetch('/health')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.memory) {
+                        const usedMB = Math.round(data.memory.heapUsed / 1024 / 1024);
+                        document.getElementById('memory').textContent = usedMB;
+                    }
+                })
+                .catch(err => console.error(err));
         }
         
-        // فحص الإعدادات
-        function showEnvCheck() {
-          fetch('/api/env-check')
-            .then(response => response.json())
-            .then(data => {
-              let message = '🔧 فحص المتغيرات البيئية:\n\n';
-              Object.entries(data).forEach(([key, value]) => {
-                message += `${key}: ${value.status}\n`;
-              });
-              alert(message);
-            })
-            .catch(error => {
-              alert('❌ خطأ في فحص الإعدادات: ' + error.message);
-            });
+        // تحديث الوقت
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('timestamp').textContent = 
+                now.toLocaleString('ar-SA', { timeZone: 'Asia/Riyadh' });
         }
         
         // التحديث الأولي
-        updateDynamicInfo();
+        updateUptime();
+        updateMemory();
+        updateTime();
         
-        // تحديث كل 5 ثواني
-        setInterval(updateDynamicInfo, 5000);
+        // تحديث الذاكرة كل 10 ثواني
+        setInterval(updateMemory, 10000);
         
         // تحديث الوقت كل ثانية
-        setInterval(() => {
-          const now = new Date();
-          const timeStr = now.toLocaleString('ar-SA', { 
-            timeZone: 'Asia/Riyadh',
-            hour12: true 
-          });
-          document.getElementById('timestamp').textContent = timeStr;
-        }, 1000);
-      </script>
-    </body>
-    </html>
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>
   `);
 });
 
@@ -436,143 +356,115 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    bot_status: botStarted ? 'running' : 'stopped',
+    bot_running: botStarted,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     memory: process.memoryUsage(),
     node_version: process.version,
     platform: process.platform,
-    arch: process.arch,
-    env: process.env.NODE_ENV || 'development'
+    port: PORT,
+    env: process.env.NODE_ENV || 'production'
   });
 });
 
-// فحص حالة النظام
+// حالة النظام
 app.get('/api/status', (req, res) => {
   res.json({
     bot: {
       running: botStarted,
-      last_check: new Date().toISOString()
+      token_configured: !!process.env.BOT_TOKEN,
+      developer_id: process.env.DEVELOPER_ID || '6960704733'
     },
     server: {
       port: PORT,
       uptime: process.uptime(),
-      memory: process.memoryUsage()
+      memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB'
     },
-    environment: {
-      node_env: process.env.NODE_ENV,
-      timezone: process.env.TIMEZONE || 'Asia/Riyadh'
+    render: {
+      service: 'web',
+      region: 'frankfurt',
+      url: 'https://islamic-telegram-bot.onrender.com'
     }
   });
 });
 
-// فحص المتغيرات البيئية
-app.get('/api/env-check', (req, res) => {
-  const envVars = {
-    BOT_TOKEN: {
-      exists: !!process.env.BOT_TOKEN,
-      length: process.env.BOT_TOKEN ? process.env.BOT_TOKEN.length : 0,
-      status: process.env.BOT_TOKEN ? '✅ مضبوط' : '❌ مفقود'
-    },
-    PORT: {
-      value: process.env.PORT || '3000',
-      status: '✅ مضبوط'
-    },
-    NODE_ENV: {
-      value: process.env.NODE_ENV || 'development',
-      status: process.env.NODE_ENV ? '✅ مضبوط' : '⚠️ غير مضبوط'
-    },
-    ADMIN_GROUP_ID: {
-      exists: !!process.env.ADMIN_GROUP_ID,
-      status: process.env.ADMIN_GROUP_ID ? '✅ مضبوط' : '⚠️ غير مضبوط'
-    }
-  };
+// تشغيل البوت يدوياً
+app.get('/api/start-bot', async (req, res) => {
+  if (botStarted) {
+    return res.json({ success: false, message: 'البوت يعمل بالفعل' });
+  }
   
-  res.json(envVars);
-});
-
-// سجلات النظام
-app.get('/api/logs', (req, res) => {
-  res.json({
-    logs: [
-      {
-        timestamp: new Date().toISOString(),
-        level: 'INFO',
-        message: 'طلب سجلات النظام'
-      },
-      {
-        timestamp: new Date(Date.now() - 5000).toISOString(),
-        level: botStarted ? 'SUCCESS' : 'ERROR',
-        message: botStarted ? 'تم تحميل البوت بنجاح' : 'فشل تحميل البوت'
-      },
-      {
-        timestamp: new Date(Date.now() - 10000).toISOString(),
-        level: 'INFO',
-        message: 'تم تشغيل خادم الويب'
-      }
-    ],
-    count: 3,
-    generated_at: new Date().toISOString()
+  const result = await initializeBot();
+  res.json({ 
+    success: result, 
+    message: result ? 'تم تشغيل البوت بنجاح' : 'فشل تشغيل البوت'
   });
 });
 
-// معالجة 404
+// إيقاف البوت يدوياً
+app.get('/api/stop-bot', (req, res) => {
+  if (!botStarted || !bot) {
+    return res.json({ success: false, message: 'البوت غير مشغل' });
+  }
+  
+  try {
+    bot.stop();
+    botStarted = false;
+    res.json({ success: true, message: 'تم إيقاف البوت' });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// صفحة 404
 app.use((req, res) => {
-  res.status(404).json({
-    error: 'الصفحة غير موجودة',
-    path: req.path,
-    method: req.method,
-    timestamp: new Date().toISOString(),
-    available_endpoints: [
-      'GET /',
-      'GET /health',
-      'GET /api/status',
-      'GET /api/env-check',
-      'GET /api/logs'
-    ]
-  });
-});
-
-// معالجة الأخطاء العامة
-app.use((err, req, res, next) => {
-  console.error('🔥 خطأ في الخادم:', err);
-  res.status(500).json({
-    error: 'خطأ داخلي في الخادم',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'حدث خطأ غير متوقع',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// بدء الخادم
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-  🚀 ===================================================== 🚀
-     بوت الأذكار الإسلامي - الإصدار 2.1.0
-  🌐 ===================================================== 🌐
-     
-  ✅ الخادم يعمل بنجاح!
-  📍 العنوان: http://0.0.0.0:${PORT}
-  ⏰ الوقت: ${new Date().toLocaleString('ar-SA')}
-  🔧 البيئة: ${process.env.NODE_ENV || 'development'}
-  🤖 حالة البوت: ${botStarted ? '✅ نشط' : '❌ غير نشط'}
-  
-  📊 نقاط الوصول المتاحة:
-     🔗 الصفحة الرئيسية: /
-     🩺 فحص الصحة: /health
-     📈 حالة النظام: /api/status
-     🔧 فحص الإعدادات: /api/env-check
-     📝 السجلات: /api/logs
-  
-  👤 المطور: @dev3bod
-  📞 الدعم: ${process.env.DEVELOPER_ID || '6960704733'}
-  ⚡ يستضاف على: Render
-  🚀 ===================================================== 🚀
+  res.status(404).send(`
+    <div style="text-align: center; padding: 50px; color: white;">
+      <h1 style="font-size: 4em;">404</h1>
+      <p style="font-size: 1.5em;">الصفحة غير موجودة</p>
+      <a href="/" style="color: #ffd700; text-decoration: none;">العودة للرئيسية</a>
+    </div>
   `);
 });
 
-// معالجة إيقاف الخادم
+// ==================== PART 4: START SERVER ====================
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`
+  🌐 ===================================================== 🌐
+     الخادم يعمل على: http://0.0.0.0:${PORT}
+     الوقت: ${new Date().toLocaleString('ar-SA')}
+     إصدار Node: ${process.version}
+  🌐 ===================================================== 🌐
+  `);
+  
+  // محاولة تشغيل البوت بعد بدء الخادم
+  setTimeout(async () => {
+    await initializeBot();
+  }, 3000);
+});
+
+// ==================== PART 5: KEEP ALIVE MECHANISM ====================
+// هذه الدالة تحافظ على تشغيل الخادم
+function keepAlive() {
+  console.log(`🟢 الخادم لا يزال يعمل (${Math.floor(process.uptime())}s)`);
+  
+  // إرسال طلب إلى نفس الخادم للحفاظ على نشاطه
+  if (process.env.RENDER_EXTERNAL_URL) {
+    fetch(`${process.env.RENDER_EXTERNAL_URL}/health`)
+      .then(() => console.log('✅ تم تجديد النشاط'))
+      .catch(err => console.log('⚠️ خطأ في تجديد النشاط:', err.message));
+  }
+}
+
+// تشغيل keep-alive كل 5 دقائق
+setInterval(keepAlive, 5 * 60 * 1000);
+
+// ==================== PART 6: GRACEFUL SHUTDOWN ====================
 process.on('SIGTERM', () => {
-  console.log('🛑 تلقي إشارة SIGTERM، إيقاف الخادم...');
+  console.log('🛑 تلقي إشارة SIGTERM');
+  if (bot) {
+    bot.stop();
+  }
   server.close(() => {
     console.log('✅ تم إيقاف الخادم');
     process.exit(0);
@@ -580,18 +472,25 @@ process.on('SIGTERM', () => {
 });
 
 process.on('SIGINT', () => {
-  console.log('🛑 تلقي إشارة SIGINT، إيقاف الخادم...');
+  console.log('🛑 تلقي إشارة SIGINT');
+  if (bot) {
+    bot.stop();
+  }
   server.close(() => {
     console.log('✅ تم إيقاف الخادم');
     process.exit(0);
   });
 });
 
-// الحفاظ على الخادم نشطاً
-setInterval(() => {
-  if (server.listening) {
-    console.log(`🟢 الخادم لا يزال يعمل (Uptime: ${Math.floor(process.uptime())}s)`);
-  }
-}, 30000); // كل 30 ثانية
+// منع الخادم من الخروج
+process.on('uncaughtException', (error) => {
+  console.error('🔥 خطأ غير متوقع:', error);
+  // لا تخرج من العملية، فقط سجل الخطأ
+});
 
-module.exports = { app, server };
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ وعد مرفوض:', reason);
+});
+
+// ==================== PART 7: EXPORT FOR RENDER ====================
+module.exports = server;
