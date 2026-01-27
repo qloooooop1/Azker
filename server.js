@@ -137,8 +137,36 @@ async function initializeDefaultData() {
   
   // أذكار افتراضية
   if (Object.keys(db.adhkar).length === 0) {
-    const defaultAdhkar = require('./data/default-adhkar.json');
-    db.adhkar = defaultAdhkar;
+    try {
+      const defaultAdhkarPath = path.join(__dirname, 'data', 'default-adhkar.json');
+      if (await fs.pathExists(defaultAdhkarPath)) {
+        db.adhkar = JSON.parse(await fs.readFile(defaultAdhkarPath, 'utf8'));
+      } else {
+        // إنشاء بيانات افتراضية بسيطة
+        db.adhkar = {
+          'morning_001': {
+            id: 'morning_001',
+            title: 'أذكار الصباح',
+            text: 'أصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير',
+            category: 'morning',
+            source: 'حصن المسلم',
+            enabled: true
+          }
+        };
+      }
+    } catch (error) {
+      console.log('⚠️ استخدام أذكار افتراضية بسيطة');
+      db.adhkar = {
+        'morning_001': {
+          id: 'morning_001',
+          title: 'أذكار الصباح',
+          text: 'أصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له',
+          category: 'morning',
+          source: 'حصن المسلم',
+          enabled: true
+        }
+      };
+    }
   }
   
   // إعدادات افتراضية للمجموعات
@@ -151,7 +179,7 @@ async function initializeDefaultData() {
         eveningAdhkar: true,
         randomAdhkar: true,
         fridayReminder: true,
-        randomInterval: 120, // دقائق
+        randomInterval: 120,
         morningTime: '06:00',
         eveningTime: '18:00',
         includeAudio: true,
@@ -189,44 +217,6 @@ async function sendTelegramMessage(chatId, text, options = {}) {
   }
 }
 
-async function sendTelegramDocument(chatId, documentUrl, caption = '', options = {}) {
-  try {
-    const response = await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendDocument`,
-      {
-        chat_id: chatId,
-        document: documentUrl,
-        caption: caption,
-        parse_mode: options.parse_mode || 'HTML'
-      }
-    );
-    
-    return response.data;
-  } catch (error) {
-    console.error('❌ خطأ في إرسال ملف:', error.message);
-    return null;
-  }
-}
-
-async function sendTelegramAudio(chatId, audioUrl, caption = '', options = {}) {
-  try {
-    const response = await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendAudio`,
-      {
-        chat_id: chatId,
-        audio: audioUrl,
-        caption: caption,
-        parse_mode: options.parse_mode || 'HTML'
-      }
-    );
-    
-    return response.data;
-  } catch (error) {
-    console.error('❌ خطأ في إرسال صوت:', error.message);
-    return null;
-  }
-}
-
 async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
   try {
     const response = await axios.post(
@@ -248,124 +238,145 @@ async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
 // ==================== لوحة تحكم المشرفين ====================
 
 async function handleAdminStart(chatId, userId, groupId, username) {
-  // التحقق من صلاحيات المشرف
-  const isAdmin = await checkAdminPermissions(userId, groupId);
-  
-  if (!isAdmin) {
+  try {
+    // التحقق من صلاحيات المشرف
+    const isAdmin = await checkAdminPermissions(userId, groupId);
+    
+    if (!isAdmin) {
+      await sendTelegramMessage(
+        userId,
+        '⛔ *ليس لديك صلاحية الوصول إلى لوحة التحكم*\n\n' +
+        'يجب أن تكون مشرفاً في المجموعة للوصول إلى هذه اللوحة.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+    
+    // تسجيل المستخدم
+    if (!db.users[userId]) {
+      db.users[userId] = {
+        id: userId,
+        username: username,
+        isDeveloper: userId.toString() === process.env.DEVELOPER_ID,
+        isSuperAdmin: false,
+        managedGroups: [groupId],
+        joinDate: new Date().toISOString(),
+        lastActive: new Date().toISOString()
+      };
+    }
+    
+    // تسجيل المجموعة
+    if (!db.groups[groupId]) {
+      db.groups[groupId] = {
+        id: groupId,
+        title: `المجموعة ${groupId}`,
+        addedBy: userId,
+        addedDate: new Date().toISOString(),
+        admins: [userId.toString()],
+        settings: { ...db.groups['default'].settings }
+      };
+    }
+    
+    // إرسال لوحة التحكم
+    await sendAdminDashboard(userId, groupId);
+    
+  } catch (error) {
+    console.error('خطأ في handleAdminStart:', error);
     await sendTelegramMessage(
       userId,
-      '⛔ *ليس لديك صلاحية الوصول إلى لوحة التحكم*\n\n' +
-      'يجب أن تكون مشرفاً في المجموعة للوصول إلى هذه اللوحة.',
-      { parse_mode: 'Markdown' }
+      '❌ حدث خطأ في فتح لوحة التحكم. حاول مرة أخرى.'
     );
-    return;
   }
-  
-  // تسجيل المستخدم
-  if (!db.users[userId]) {
-    db.users[userId] = {
-      id: userId,
-      username: username,
-      isDeveloper: userId.toString() === process.env.DEVELOPER_ID,
-      isSuperAdmin: false,
-      managedGroups: [groupId],
-      joinDate: new Date().toISOString(),
-      lastActive: new Date().toISOString()
-    };
-  }
-  
-  // تسجيل المجموعة
-  if (!db.groups[groupId]) {
-    db.groups[groupId] = {
-      id: groupId,
-      title: `المجموعة ${groupId}`,
-      addedBy: userId,
-      addedDate: new Date().toISOString(),
-      admins: [userId.toString()],
-      settings: { ...db.groups['default'].settings }
-    };
-  }
-  
-  // إرسال لوحة التحكم
-  await sendAdminDashboard(userId, groupId);
 }
 
 async function sendAdminDashboard(userId, groupId) {
-  const group = db.groups[groupId];
-  const settings = group.settings;
-  
-  const message = `🎛️ *لوحة تحكم المشرف*\n\n` +
-    `📝 *${group.title || 'المجموعة'}*\n\n` +
-    `⚙️ *الإعدادات الحالية:*\n` +
-    `🌅 أذكار الصباح: ${settings.morningAdhkar ? '✅' : '❌'}\n` +
-    `🌇 أذكار المساء: ${settings.eveningAdhkar ? '✅' : '❌'}\n` +
-    `🔄 أذكار دورية: ${settings.randomAdhkar ? '✅' : '❌'}\n` +
-    `🕌 تذكير الجمعة: ${settings.fridayReminder ? '✅' : '❌'}\n\n` +
-    `⏰ *الفاصل الزمني:* ${settings.randomInterval} دقيقة\n` +
-    `🕐 توقيت الصباح: ${settings.morningTime}\n` +
-    `🕐 توقيت المساء: ${settings.eveningTime}\n\n` +
-    `🎧 *الوسائط:*\n` +
-    `🔊 الصوتيات: ${settings.includeAudio ? '✅' : '❌'}\n` +
-    `📄 ملفات PDF: ${settings.includePDF ? '✅' : '❌'}\n\n` +
-    `🔧 *اختر الإعداد الذي تريد تعديله:*`;
-  
-  await sendTelegramMessage(
-    userId,
-    message,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: `${settings.morningAdhkar ? '✅' : '❌'} الصباح`, callback_data: `toggle_morning_${groupId}` },
-            { text: `${settings.eveningAdhkar ? '✅' : '❌'} المساء`, callback_data: `toggle_evening_${groupId}` }
-          ],
-          [
-            { text: `${settings.randomAdhkar ? '✅' : '❌'} دورية`, callback_data: `toggle_random_${groupId}` },
-            { text: `${settings.fridayReminder ? '✅' : '❌'} الجمعة`, callback_data: `toggle_friday_${groupId}` }
-          ],
-          [
-            { text: '⏱️ الفاصل الزمني', callback_data: `set_interval_${groupId}` },
-            { text: '🕐 تعديل التوقيت', callback_data: `set_time_${groupId}` }
-          ],
-          [
-            { text: `${settings.includeAudio ? '✅' : '❌'} صوتيات`, callback_data: `toggle_audio_${groupId}` },
-            { text: `${settings.includePDF ? '✅' : '❌'} PDF`, callback_data: `toggle_pdf_${groupId}` }
-          ],
-          [
-            { text: '📊 إحصائيات', callback_data: `stats_${groupId}` },
-            { text: '🔄 إعادة تعيين', callback_data: `reset_${groupId}` }
-          ],
-          [
-            { text: '👑 لوحة المطور', callback_data: `dev_panel_${userId}` }
+  try {
+    const group = db.groups[groupId];
+    if (!group) return;
+    
+    const settings = group.settings || db.groups['default'].settings;
+    
+    const message = `🎛️ *لوحة تحكم المشرف*\n\n` +
+      `📝 *${group.title || 'المجموعة'}*\n\n` +
+      `⚙️ *الإعدادات الحالية:*\n` +
+      `🌅 أذكار الصباح: ${settings.morningAdhkar ? '✅' : '❌'}\n` +
+      `🌇 أذكار المساء: ${settings.eveningAdhkar ? '✅' : '❌'}\n` +
+      `🔄 أذكار دورية: ${settings.randomAdhkar ? '✅' : '❌'}\n` +
+      `🕌 تذكير الجمعة: ${settings.fridayReminder ? '✅' : '❌'}\n\n` +
+      `⏰ *الفاصل الزمني:* ${settings.randomInterval} دقيقة\n` +
+      `🕐 توقيت الصباح: ${settings.morningTime}\n` +
+      `🕐 توقيت المساء: ${settings.eveningTime}\n\n` +
+      `🎧 *الوسائط:*\n` +
+      `🔊 الصوتيات: ${settings.includeAudio ? '✅' : '❌'}\n` +
+      `📄 ملفات PDF: ${settings.includePDF ? '✅' : '❌'}\n\n` +
+      `🔧 *اختر الإعداد الذي تريد تعديله:*`;
+    
+    await sendTelegramMessage(
+      userId,
+      message,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: `${settings.morningAdhkar ? '✅' : '❌'} الصباح`, callback_data: `toggle_morning_${groupId}` },
+              { text: `${settings.eveningAdhkar ? '✅' : '❌'} المساء`, callback_data: `toggle_evening_${groupId}` }
+            ],
+            [
+              { text: `${settings.randomAdhkar ? '✅' : '❌'} دورية`, callback_data: `toggle_random_${groupId}` },
+              { text: `${settings.fridayReminder ? '✅' : '❌'} الجمعة`, callback_data: `toggle_friday_${groupId}` }
+            ],
+            [
+              { text: '⏱️ الفاصل الزمني', callback_data: `set_interval_${groupId}` },
+              { text: '🕐 تعديل التوقيت', callback_data: `set_time_${groupId}` }
+            ],
+            [
+              { text: `${settings.includeAudio ? '✅' : '❌'} صوتيات`, callback_data: `toggle_audio_${groupId}` },
+              { text: `${settings.includePDF ? '✅' : '❌'} PDF`, callback_data: `toggle_pdf_${groupId}` }
+            ],
+            [
+              { text: '📊 إحصائيات', callback_data: `stats_${groupId}` },
+              { text: '🔄 إعادة تعيين', callback_data: `reset_${groupId}` }
+            ]
           ]
-        ]
+        }
       }
-    }
-  );
+    );
+    
+  } catch (error) {
+    console.error('خطأ في sendAdminDashboard:', error);
+  }
 }
 
 async function checkAdminPermissions(userId, groupId) {
   try {
+    // المطور لديه جميع الصلاحيات
     if (userId.toString() === process.env.DEVELOPER_ID) {
       return true;
     }
     
+    // التحقق من قاعدة البيانات المحلية
     if (db.groups[groupId] && db.groups[groupId].admins) {
       return db.groups[groupId].admins.includes(userId.toString());
     }
     
-    // التحقق من تليجرام
-    const response = await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getChatMember`,
-      {
-        chat_id: groupId,
-        user_id: userId
-      }
-    );
-    
-    const status = response.data.result.status;
-    return ['administrator', 'creator'].includes(status);
+    // التحقق من تليجرام (اختياري)
+    try {
+      const response = await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getChatMember`,
+        {
+          chat_id: groupId,
+          user_id: userId
+        }
+      );
+      
+      const status = response.data.result.status;
+      return ['administrator', 'creator'].includes(status);
+      
+    } catch (telegramError) {
+      console.log('⚠️ استخدام قاعدة البيانات المحلية للصلاحيات');
+      return false;
+    }
     
   } catch (error) {
     console.error('خطأ في التحقق من الصلاحيات:', error.message);
@@ -376,52 +387,56 @@ async function checkAdminPermissions(userId, groupId) {
 // ==================== لوحة تحكم المطور ====================
 
 async function sendDeveloperPanel(userId) {
-  const stats = await getSystemStats();
-  const user = db.users[userId] || {};
-  
-  const message = `👑 *لوحة تحكم المطور*\n\n` +
-    `📊 *إحصائيات النظام:*\n` +
-    `👥 المجموعات: ${stats.groups}\n` +
-    `👤 المستخدمين: ${stats.users}\n` +
-    `🕌 الأذكار: ${stats.adhkar}\n` +
-    `📅 مجدول: ${stats.scheduled}\n` +
-    `🎧 وسائط: ${stats.media}\n\n` +
-    `⚡ *أدوات النظام:*\n` +
-    `1. إدارة المحتوى (JSON)\n` +
-    `2. إدارة الوسائط\n` +
-    `3. البث والجدولة\n` +
-    `4. الأقسام والفئات\n` +
-    `5. الإحصائيات والتقارير\n` +
-    `6. النسخ الاحتياطي\n\n` +
-    `🔧 *اختر القسم:*`;
-  
-  await sendTelegramMessage(
-    userId,
-    message,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '📝 إدارة المحتوى', callback_data: 'dev_content' },
-            { text: '🎧 الوسائط', callback_data: 'dev_media' }
-          ],
-          [
-            { text: '📨 البث المتقدم', callback_data: 'dev_broadcast' },
-            { text: '📂 الأقسام', callback_data: 'dev_categories' }
-          ],
-          [
-            { text: '📊 التقارير', callback_data: 'dev_reports' },
-            { text: '💾 النسخ الاحتياطي', callback_data: 'dev_backup' }
-          ],
-          [
-            { text: '⚙️ إعدادات النظام', callback_data: 'dev_settings' },
-            { text: '🔄 جدولة متقدمة', callback_data: 'dev_scheduling' }
+  try {
+    const stats = await getSystemStats();
+    
+    const message = `👑 *لوحة تحكم المطور*\n\n` +
+      `📊 *إحصائيات النظام:*\n` +
+      `👥 المجموعات: ${stats.groups}\n` +
+      `👤 المستخدمين: ${stats.users}\n` +
+      `🕌 الأذكار: ${stats.adhkar}\n` +
+      `📅 مجدول: ${stats.scheduled}\n` +
+      `🎧 وسائط: ${stats.media}\n\n` +
+      `⚡ *أدوات النظام:*\n` +
+      `1. إدارة المحتوى (JSON)\n` +
+      `2. إدارة الوسائط\n` +
+      `3. البث والجدولة\n` +
+      `4. الأقسام والفئات\n` +
+      `5. الإحصائيات والتقارير\n` +
+      `6. النسخ الاحتياطي\n\n` +
+      `🔧 *اختر القسم:*`;
+    
+    await sendTelegramMessage(
+      userId,
+      message,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📝 إدارة المحتوى', callback_data: 'dev_content' },
+              { text: '🎧 الوسائط', callback_data: 'dev_media' }
+            ],
+            [
+              { text: '📨 البث المتقدم', callback_data: 'dev_broadcast' },
+              { text: '📂 الأقسام', callback_data: 'dev_categories' }
+            ],
+            [
+              { text: '📊 التقارير', callback_data: 'dev_reports' },
+              { text: '💾 النسخ الاحتياطي', callback_data: 'dev_backup' }
+            ],
+            [
+              { text: '⚙️ إعدادات النظام', callback_data: 'dev_settings' },
+              { text: '🔄 جدولة متقدمة', callback_data: 'dev_scheduling' }
+            ]
           ]
-        ]
+        }
       }
-    }
-  );
+    );
+    
+  } catch (error) {
+    console.error('خطأ في sendDeveloperPanel:', error);
+  }
 }
 
 async function getSystemStats() {
@@ -435,190 +450,17 @@ async function getSystemStats() {
   };
 }
 
-// ==================== إدارة المحتوى (JSON) ====================
-
-async function sendContentManagement(userId) {
-  const message = `📝 *إدارة المحتوى عبر JSON*\n\n` +
-    `يمكنك رفع ملفات JSON تحتوي على:\n\n` +
-    `1. أذكار جديدة\n` +
-    `2. فئات جديدة\n` +
-    `3. جداول جديدة\n` +
-    `4. إعدادات النظام\n\n` +
-    `📌 *التنسيق المطلوب:*\n` +
-    `• ملف JSON صالح\n` +
-    `• هيكل بيانات منظم\n` +
-    `• ترميز UTF-8\n\n` +
-    `🔧 *اختر نوع الملف:*`;
-  
-  await sendTelegramMessage(
-    userId,
-    message,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '🕌 رفع أذكار', callback_data: 'upload_adhkar' },
-            { text: '📂 رفع فئات', callback_data: 'upload_categories' }
-          ],
-          [
-            { text: '📅 رفع جداول', callback_data: 'upload_schedules' },
-            { text: '⚙️ رفع إعدادات', callback_data: 'upload_settings' }
-          ],
-          [
-            { text: '📋 مثال JSON', callback_data: 'json_example' },
-            { text: '📤 تصدير البيانات', callback_data: 'export_data' }
-          ],
-          [
-            { text: '◀️ رجوع', callback_data: 'back_to_dev' }
-          ]
-        ]
-      }
-    }
-  );
-}
-
-// ==================== نظام البث المتقدم ====================
-
-async function sendBroadcastPanel(userId) {
-  const message = `📨 *نظام البث المتقدم*\n\n` +
-    `يمكنك بث رسائل لجميع المجموعات مع خيارات متقدمة:\n\n` +
-    `✨ *أنواع البث:*\n` +
-    `1. بث فوري (نص، وسائط)\n` +
-    `2. بث مجدول (تاريخ/وقت محدد)\n` +
-    `3. بث متكرر (يومي، أسبوعي)\n` +
-    `4. بث شرطي (حسب الفئة)\n\n` +
-    `🎯 *المرشحات:*\n` +
-    `• حسب الفئة\n` +
-    `• حسب المنطقة\n` +
-    `• حسب اللغة\n` +
-    `• حسب النشاط\n\n` +
-    `🔧 *اختر نوع البث:*`;
-  
-  await sendTelegramMessage(
-    userId,
-    message,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '🚀 بث فوري', callback_data: 'broadcast_now' },
-            { text: '📅 بث مجدول', callback_data: 'broadcast_scheduled' }
-          ],
-          [
-            { text: '🔄 بث متكرر', callback_data: 'broadcast_recurring' },
-            { text: '🎯 بث شرطي', callback_data: 'broadcast_conditional' }
-          ],
-          [
-            { text: '📊 إحصائيات البث', callback_data: 'broadcast_stats' },
-            { text: '📋 تاريخ البث', callback_data: 'broadcast_history' }
-          ],
-          [
-            { text: '◀️ رجوع', callback_data: 'back_to_dev' }
-          ]
-        ]
-      }
-    }
-  );
-}
-
-// ==================== نظام الأقسام والفئات ====================
-
-async function sendCategoriesManagement(userId) {
-  const categories = Object.values(db.categories);
-  
-  let categoriesList = '📂 *الفئات الحالية:*\n\n';
-  categories.forEach(cat => {
-    categoriesList += `${cat.icon} ${cat.name} ${cat.enabled ? '✅' : '❌'}\n`;
-  });
-  
-  const message = categoriesList + `\n🔧 *إدارة الفئات:*\n` +
-    `يمكنك إنشاء فئات جديدة للأذكار والمناسبات`;
-  
-  await sendTelegramMessage(
-    userId,
-    message,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '➕ فئة جديدة', callback_data: 'new_category' },
-            { text: '✏️ تعديل فئة', callback_data: 'edit_category' }
-          ],
-          [
-            { text: '🗑️ حذف فئة', callback_data: 'delete_category' },
-            { text: '⚙️ تفعيل/تعطيل', callback_data: 'toggle_category' }
-          ],
-          [
-            { text: '📅 مناسبات', callback_data: 'manage_events' },
-            { text: '🕌 رمضان', callback_data: 'ramadan_special' }
-          ],
-          [
-            { text: '◀️ رجوع', callback_data: 'back_to_dev' }
-          ]
-        ]
-      }
-    }
-  );
-}
-
-// ==================== جدولة متقدمة ====================
-
-async function sendAdvancedScheduling(userId) {
-  const message = `📅 *الجدولة المتقدمة*\n\n` +
-    `✨ *أنواع الجدولة:*\n` +
-    `1. جدولة واحدة (تاريخ/وقت محدد)\n` +
-    `2. جدولة متكررة (يومي، أسبوعي، شهري)\n` +
-    `3. جدولة موسمية (رمضان، الحج)\n` +
-    `4. جدولة ديناميكية (حسب الأحداث)\n\n` +
-    `🎯 *ميزات متقدمة:*\n` +
-    `• تحديد أيام معينة\n` +
-    `• استثناء أيام\n` +
-    `• تكرار محدد\n` +
-    `• شروط خاصة\n\n` +
-    `🔧 *اختر نوع الجدولة:*`;
-  
-  await sendTelegramMessage(
-    userId,
-    message,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '⏰ جدولة واحدة', callback_data: 'schedule_single' },
-            { text: '🔄 جدولة متكررة', callback_data: 'schedule_recurring' }
-          ],
-          [
-            { text: '🌙 رمضان كامل', callback_data: 'schedule_ramadan' },
-            { text: '🕌 مناسبات', callback_data: 'schedule_events' }
-          ],
-          [
-            { text: '📋 الجداول النشطة', callback_data: 'active_schedules' },
-            { text: '📊 إحصائيات', callback_data: 'schedule_stats' }
-          ],
-          [
-            { text: '◀️ رجوع', callback_data: 'back_to_dev' }
-          ]
-        ]
-      }
-    }
-  );
-}
-
 // ==================== معالجة Callback Queries ====================
 
 async function handleCallbackQuery(userId, data, messageId) {
   console.log(`📲 Callback: ${data} from ${userId}`);
   
-  const parts = data.split('_');
-  const action = parts[0];
-  const target = parts[1];
-  const param = parts.slice(2).join('_');
-  
   try {
+    const parts = data.split('_');
+    const action = parts[0];
+    const target = parts[1];
+    const param = parts.slice(2).join('_');
+    
     switch(action) {
       case 'toggle':
         await handleToggleAction(userId, target, param, messageId);
@@ -640,22 +482,6 @@ async function handleCallbackQuery(userId, data, messageId) {
         await handleDevAction(userId, target, messageId);
         break;
         
-      case 'upload':
-        await handleUploadAction(userId, target, messageId);
-        break;
-        
-      case 'broadcast':
-        await handleBroadcastAction(userId, target, messageId);
-        break;
-        
-      case 'schedule':
-        await handleScheduleAction(userId, target, messageId);
-        break;
-        
-      case 'back':
-        await sendDeveloperPanel(userId);
-        break;
-        
       default:
         console.log(`⚠️ إجراء غير معروف: ${action}`);
     }
@@ -673,42 +499,276 @@ async function handleCallbackQuery(userId, data, messageId) {
 }
 
 async function handleToggleAction(userId, type, groupId, messageId) {
-  const group = db.groups[groupId];
-  if (!group) return;
-  
-  switch(type) {
-    case 'morning':
-      group.settings.morningAdhkar = !group.settings.morningAdhkar;
-      await sendTelegramMessage(userId, `✅ تم ${group.settings.morningAdhkar ? 'تفعيل' : 'تعطيل'} أذكار الصباح`);
-      break;
-      
-    case 'evening':
-      group.settings.eveningAdhkar = !group.settings.eveningAdhkar;
-      await sendTelegramMessage(userId, `✅ تم ${group.settings.eveningAdhkar ? 'تفعيل' : 'تعطيل'} أذكار المساء`);
-      break;
-      
-    case 'random':
-      group.settings.randomAdhkar = !group.settings.randomAdhkar;
-      await sendTelegramMessage(userId, `✅ تم ${group.settings.randomAdhkar ? 'تفعيل' : 'تعطيل'} الأذكار الدورية`);
-      break;
-      
-    case 'friday':
-      group.settings.fridayReminder = !group.settings.fridayReminder;
-      await sendTelegramMessage(userId, `✅ تم ${group.settings.fridayReminder ? 'تفعيل' : 'تعطيل'} تذكير الجمعة`);
-      break;
-      
-    case 'audio':
-      group.settings.includeAudio = !group.settings.includeAudio;
-      await sendTelegramMessage(userId, `✅ تم ${group.settings.includeAudio ? 'تفعيل' : 'تعطيل'} الصوتيات`);
-      break;
-      
-    case 'pdf':
-      group.settings.includePDF = !group.settings.includePDF;
-      await sendTelegramMessage(userId, `✅ تم ${group.settings.includePDF ? 'تفعيل' : 'تعطيل'} ملفات PDF`);
-      break;
+  try {
+    const group = db.groups[groupId];
+    if (!group) {
+      await sendTelegramMessage(userId, '❌ المجموعة غير موجودة');
+      return;
+    }
+    
+    if (!group.settings) {
+      group.settings = { ...db.groups['default'].settings };
+    }
+    
+    let message = '';
+    let newValue = false;
+    
+    switch(type) {
+      case 'morning':
+        newValue = !group.settings.morningAdhkar;
+        group.settings.morningAdhkar = newValue;
+        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} أذكار الصباح`;
+        break;
+        
+      case 'evening':
+        newValue = !group.settings.eveningAdhkar;
+        group.settings.eveningAdhkar = newValue;
+        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} أذكار المساء`;
+        break;
+        
+      case 'random':
+        newValue = !group.settings.randomAdhkar;
+        group.settings.randomAdhkar = newValue;
+        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} الأذكار الدورية`;
+        break;
+        
+      case 'friday':
+        newValue = !group.settings.fridayReminder;
+        group.settings.fridayReminder = newValue;
+        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} تذكير الجمعة`;
+        break;
+        
+      case 'audio':
+        newValue = !group.settings.includeAudio;
+        group.settings.includeAudio = newValue;
+        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} الصوتيات`;
+        break;
+        
+      case 'pdf':
+        newValue = !group.settings.includePDF;
+        group.settings.includePDF = newValue;
+        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} ملفات PDF`;
+        break;
+        
+      default:
+        message = '❌ نوع غير معروف';
+    }
+    
+    await sendTelegramMessage(userId, message);
+    await sendAdminDashboard(userId, groupId);
+    
+  } catch (error) {
+    console.error('خطأ في handleToggleAction:', error);
+    await sendTelegramMessage(userId, '❌ حدث خطأ في التعديل');
   }
-  
-  await sendAdminDashboard(userId, groupId);
+}
+
+async function handleSetAction(userId, type, groupId, messageId) {
+  try {
+    const group = db.groups[groupId];
+    if (!group) {
+      await sendTelegramMessage(userId, '❌ المجموعة غير موجودة');
+      return;
+    }
+    
+    let message = '';
+    
+    switch(type) {
+      case 'interval':
+        message = '⏱️ *تحديد الفاصل الزمني*\n\n' +
+                 'أرسل عدد الدقائق بين كل ذكر وآخر (مثال: 120)\n' +
+                 'الحد الأدنى: 30 دقيقة\n' +
+                 'الحد الأقصى: 1440 دقيقة (24 ساعة)';
+        break;
+        
+      case 'time':
+        message = '🕐 *تعديل التوقيت*\n\n' +
+                 'أرسل التوقيت بالتنسيق 24 ساعة (مثال: 06:00)\n\n' +
+                 '1. توقيت الصباح\n' +
+                 '2. توقيت المساء\n\n' +
+                 'أرسل "صباح 06:00" أو "مساء 18:00"';
+        break;
+        
+      default:
+        message = '❌ نوع غير معروف';
+    }
+    
+    // حفظ حالة المستخدم للرد التالي
+    if (!db.users[userId].pendingAction) {
+      db.users[userId].pendingAction = {};
+    }
+    db.users[userId].pendingAction = {
+      type: `set_${type}`,
+      groupId: groupId,
+      messageId: messageId
+    };
+    
+    await sendTelegramMessage(userId, message, { parse_mode: 'Markdown' });
+    
+  } catch (error) {
+    console.error('خطأ في handleSetAction:', error);
+    await sendTelegramMessage(userId, '❌ حدث خطأ في الإعداد');
+  }
+}
+
+async function handleDevAction(userId, target, messageId) {
+  try {
+    switch(target) {
+      case 'content':
+        await sendContentManagement(userId);
+        break;
+        
+      case 'media':
+        await sendMediaManagement(userId);
+        break;
+        
+      case 'broadcast':
+        await sendBroadcastPanel(userId);
+        break;
+        
+      case 'categories':
+        await sendCategoriesManagement(userId);
+        break;
+        
+      case 'reports':
+        await sendReportsPanel(userId);
+        break;
+        
+      case 'backup':
+        await sendBackupPanel(userId);
+        break;
+        
+      case 'settings':
+        await sendSystemSettings(userId);
+        break;
+        
+      case 'scheduling':
+        await sendAdvancedScheduling(userId);
+        break;
+        
+      default:
+        await sendDeveloperPanel(userId);
+    }
+    
+  } catch (error) {
+    console.error('خطأ في handleDevAction:', error);
+    await sendTelegramMessage(userId, '❌ حدث خطأ في فتح اللوحة');
+  }
+}
+
+async function sendContentManagement(userId) {
+  try {
+    const message = `📝 *إدارة المحتوى*\n\n` +
+      `يمكنك إدارة المحتوى عبر:\n\n` +
+      `1. رفع ملفات JSON\n` +
+      `2. إضافة أذكار يدوياً\n` +
+      `3. تعديل المحتوى الحالي\n` +
+      `4. حذف المحتوى\n\n` +
+      `🔧 *اختر الإجراء:*`;
+    
+    await sendTelegramMessage(
+      userId,
+      message,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📤 رفع JSON', callback_data: 'upload_json' },
+              { text: '➕ إضافة يدوي', callback_data: 'add_manual' }
+            ],
+            [
+              { text: '✏️ تعديل', callback_data: 'edit_content' },
+              { text: '🗑️ حذف', callback_data: 'delete_content' }
+            ],
+            [
+              { text: '📋 تصدير', callback_data: 'export_content' },
+              { text: '◀️ رجوع', callback_data: 'dev_back' }
+            ]
+          ]
+        }
+      }
+    );
+    
+  } catch (error) {
+    console.error('خطأ في sendContentManagement:', error);
+  }
+}
+
+async function sendMediaManagement(userId) {
+  try {
+    const message = `🎧 *إدارة الوسائط*\n\n` +
+      `أنواع الوسائط المدعومة:\n\n` +
+      `🎵 الصوتيات (MP3, OGG)\n` +
+      `📄 ملفات PDF\n` +
+      `🖼️ الصور (JPG, PNG)\n\n` +
+      `🔧 *اختر الإجراء:*`;
+    
+    await sendTelegramMessage(
+      userId,
+      message,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🎵 رفع صوت', callback_data: 'upload_audio' },
+              { text: '📄 رفع PDF', callback_data: 'upload_pdf' }
+            ],
+            [
+              { text: '📋 الوسائط', callback_data: 'list_media' },
+              { text: '🔗 روابط', callback_data: 'media_links' }
+            ],
+            [
+              { text: '◀️ رجوع', callback_data: 'dev_back' }
+            ]
+          ]
+        }
+      }
+    );
+    
+  } catch (error) {
+    console.error('خطأ في sendMediaManagement:', error);
+  }
+}
+
+async function sendBroadcastPanel(userId) {
+  try {
+    const message = `📨 *نظام البث*\n\n` +
+      `أنواع البث المتاحة:\n\n` +
+      `🚀 بث فوري\n` +
+      `📅 بث مجدول\n` +
+      `🔄 بث متكرر\n` +
+      `🎯 بث شرطي\n\n` +
+      `🔧 *اختر نوع البث:*`;
+    
+    await sendTelegramMessage(
+      userId,
+      message,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🚀 فوري', callback_data: 'broadcast_now' },
+              { text: '📅 مجدول', callback_data: 'broadcast_scheduled' }
+            ],
+            [
+              { text: '🔄 متكرر', callback_data: 'broadcast_recurring' },
+              { text: '🎯 شرطي', callback_data: 'broadcast_conditional' }
+            ],
+            [
+              { text: '📊 إحصائيات', callback_data: 'broadcast_stats' },
+              { text: '◀️ رجوع', callback_data: 'dev_back' }
+            ]
+          ]
+        }
+      }
+    );
+    
+  } catch (error) {
+    console.error('خطأ في sendBroadcastPanel:', error);
+  }
 }
 
 // ==================== Webhook Handler ====================
@@ -740,53 +800,165 @@ async function handleMessage(message) {
   const username = message.from.username || message.from.first_name;
   const isGroup = message.chat.type !== 'private';
   
-  // تحديث آخر نشاط
-  if (!db.users[userId]) {
-    db.users[userId] = {
-      id: userId,
-      username: username,
-      isDeveloper: userId.toString() === process.env.DEVELOPER_ID,
-      lastActive: new Date().toISOString(),
-      joinDate: new Date().toISOString()
-    };
-  } else {
-    db.users[userId].lastActive = new Date().toISOString();
-  }
-  
-  // معالجة الأوامر
-  if (text.startsWith('/')) {
-    const command = text.split(' ')[0].toLowerCase();
+  try {
+    // تحديث آخر نشاط
+    if (!db.users[userId]) {
+      db.users[userId] = {
+        id: userId,
+        username: username,
+        isDeveloper: userId.toString() === process.env.DEVELOPER_ID,
+        lastActive: new Date().toISOString(),
+        joinDate: new Date().toISOString()
+      };
+    } else {
+      db.users[userId].lastActive = new Date().toISOString();
+    }
     
-    switch(command) {
-      case '/start':
-        if (isGroup) {
-          await handleAdminStart(chatId, userId, chatId.toString(), username);
-        } else {
+    // معالجة الأوامر
+    if (text.startsWith('/')) {
+      const command = text.split(' ')[0].toLowerCase();
+      
+      switch(command) {
+        case '/start':
+          if (isGroup) {
+            await handleAdminStart(chatId, userId, chatId.toString(), username);
+          } else {
+            if (userId.toString() === process.env.DEVELOPER_ID) {
+              await sendDeveloperPanel(userId);
+            } else {
+              await sendTelegramMessage(
+                chatId,
+                '🕌 *مرحباً بك في بوت الأذكار الإسلامي*\n\n' +
+                'هذا البوت مخصص للمجموعات فقط.\n' +
+                'أضف البوت إلى مجموعتك ثم أرسل /start لفتح لوحة التحكم.',
+                { parse_mode: 'Markdown' }
+              );
+            }
+          }
+          break;
+          
+        case '/dev':
+        case '/developer':
           if (userId.toString() === process.env.DEVELOPER_ID) {
             await sendDeveloperPanel(userId);
-          } else {
-            await sendTelegramMessage(
-              chatId,
-              '🕌 *مرحباً بك في بوت الأذكار الإسلامي*\n\n' +
-              'هذا البوت مخصص للمجموعات فقط.\n' +
-              'أضف البوت إلى مجموعتك ثم أرسل /start لفتح لوحة التحكم.',
-              { parse_mode: 'Markdown' }
-            );
           }
-        }
+          break;
+          
+        case '/help':
+          await sendHelpMessage(chatId, userId);
+          break;
+          
+        case '/test':
+          await sendTelegramMessage(
+            chatId,
+            '✅ البوت يعمل بنجاح!\n' +
+            '👤 المطور: @dev3bod\n' +
+            '🕌 الإصدار: 4.0.0',
+            { parse_mode: 'Markdown' }
+          );
+          break;
+      }
+    } else {
+      // معالجة ردود المستخدمين
+      await handleUserResponse(userId, text);
+    }
+    
+  } catch (error) {
+    console.error('خطأ في handleMessage:', error);
+  }
+}
+
+async function handleUserResponse(userId, text) {
+  try {
+    const user = db.users[userId];
+    if (!user || !user.pendingAction) return;
+    
+    const action = user.pendingAction;
+    
+    switch(action.type) {
+      case 'set_interval':
+        await handleSetIntervalResponse(userId, text, action.groupId);
         break;
         
-      case '/dev':
-      case '/developer':
-        if (userId.toString() === process.env.DEVELOPER_ID) {
-          await sendDeveloperPanel(userId);
-        }
-        break;
-        
-      case '/help':
-        await sendHelpMessage(chatId, userId);
+      case 'set_time':
+        await handleSetTimeResponse(userId, text, action.groupId);
         break;
     }
+    
+    // مسح الإجراء المعلّق
+    delete user.pendingAction;
+    
+  } catch (error) {
+    console.error('خطأ في handleUserResponse:', error);
+  }
+}
+
+async function handleSetIntervalResponse(userId, text, groupId) {
+  try {
+    const minutes = parseInt(text);
+    
+    if (isNaN(minutes) || minutes < 30 || minutes > 1440) {
+      await sendTelegramMessage(
+        userId,
+        '❌ الرقم غير صالح. يرجى إدخال عدد دقائق بين 30 و 1440'
+      );
+      return;
+    }
+    
+    const group = db.groups[groupId];
+    if (group) {
+      group.settings.randomInterval = minutes;
+      await sendTelegramMessage(
+        userId,
+        `✅ تم تعيين الفاصل الزمني إلى ${minutes} دقيقة`
+      );
+      await sendAdminDashboard(userId, groupId);
+    }
+    
+  } catch (error) {
+    console.error('خطأ في handleSetIntervalResponse:', error);
+  }
+}
+
+async function handleSetTimeResponse(userId, text, groupId) {
+  try {
+    const parts = text.split(' ');
+    if (parts.length !== 2) {
+      await sendTelegramMessage(
+        userId,
+        '❌ تنسيق غير صالح. استخدم: "صباح 06:00" أو "مساء 18:00"'
+      );
+      return;
+    }
+    
+    const type = parts[0];
+    const time = parts[1];
+    
+    // التحقق من تنسيق الوقت
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(time)) {
+      await sendTelegramMessage(userId, '❌ تنسيق الوقت غير صالح. استخدم: HH:MM');
+      return;
+    }
+    
+    const group = db.groups[groupId];
+    if (group) {
+      if (type === 'صباح' || type === 'morning') {
+        group.settings.morningTime = time;
+        await sendTelegramMessage(userId, `✅ تم تعيين وقت الصباح إلى ${time}`);
+      } else if (type === 'مساء' || type === 'evening') {
+        group.settings.eveningTime = time;
+        await sendTelegramMessage(userId, `✅ تم تعيين وقت المساء إلى ${time}`);
+      } else {
+        await sendTelegramMessage(userId, '❌ نوع غير معروف. استخدم "صباح" أو "مساء"');
+        return;
+      }
+      
+      await sendAdminDashboard(userId, groupId);
+    }
+    
+  } catch (error) {
+    console.error('خطأ في handleSetTimeResponse:', error);
   }
 }
 
@@ -795,18 +967,19 @@ async function handleCallbackUpdate(callback) {
   const data = callback.data;
   const messageId = callback.message.message_id;
   
-  await handleCallbackQuery(userId, data, messageId);
-  
-  // إجابة على callback
   try {
+    await handleCallbackQuery(userId, data, messageId);
+    
+    // إجابة على callback
     await axios.post(
       `https://api.telegram.org/bot${process.env.BOT_TOKEN}/answerCallbackQuery`,
       {
         callback_query_id: callback.id
       }
     );
+    
   } catch (error) {
-    console.error('❌ خطأ في إجابة callback:', error.message);
+    console.error('❌ خطأ في معالجة callback:', error.message);
   }
 }
 
@@ -818,9 +991,7 @@ async function sendHelpMessage(chatId, userId) {
   if (isDeveloper) {
     helpText += `👑 *أوامر المطور:*\n`;
     helpText += `/dev - لوحة التحكم المتقدمة\n`;
-    helpText += `/stats - إحصائيات النظام\n`;
-    helpText += `/backup - نسخة احتياطية\n`;
-    helpText += `/restart - إعادة تشغيل\n\n`;
+    helpText += `/test - اختبار البوت\n\n`;
   }
   
   helpText += `⚙️ *أوامر المشرفين:*\n`;
@@ -831,8 +1002,7 @@ async function sendHelpMessage(chatId, userId) {
   helpText += `• أذكار الصباح والمساء\n`;
   helpText += `• أذكار دورية عشوائية\n`;
   helpText += `• تذكير يوم الجمعة\n`;
-  helpText += `• المناسبات الإسلامية\n`;
-  helpText += `• وسائط صوتية وPDF\n\n`;
+  helpText += `• تحكم كامل في الإعدادات\n\n`;
   
   helpText += `👤 *المطور:* @dev3bod\n`;
   helpText += `📞 *الدعم:* ${process.env.DEVELOPER_ID || '6960704733'}`;
@@ -843,94 +1013,144 @@ async function sendHelpMessage(chatId, userId) {
 // ==================== نظام الجدولة ====================
 
 function setupScheduler() {
-  // أذكار الصباح
-  cron.schedule('0 6 * * *', async () => {
-    await sendMorningAdhkar();
-  });
-  
-  // أذكار المساء
-  cron.schedule('0 18 * * *', async () => {
-    await sendEveningAdhkar();
-  });
-  
-  // أذكار دورية
-  cron.schedule('*/30 * * * *', async () => {
-    await sendRandomAdhkar();
-  });
-  
-  // يوم الجمعة
-  cron.schedule('0 11 * * 5', async () => {
-    await sendFridayReminder();
-  });
-  
-  // التحقق من الجداول
-  cron.schedule('* * * * *', async () => {
-    await checkScheduledMessages();
-  });
-  
-  console.log('⏰ تم إعداد الجدولة');
+  try {
+    // أذكار الصباح
+    cron.schedule('0 6 * * *', async () => {
+      await sendMorningAdhkar();
+    });
+    
+    // أذكار المساء
+    cron.schedule('0 18 * * *', async () => {
+      await sendEveningAdhkar();
+    });
+    
+    // أذكار دورية كل ساعة
+    cron.schedule('0 * * * *', async () => {
+      await sendRandomAdhkar();
+    });
+    
+    // يوم الجمعة
+    cron.schedule('0 11 * * 5', async () => {
+      await sendFridayReminder();
+    });
+    
+    console.log('⏰ تم إعداد الجدولة');
+    
+  } catch (error) {
+    console.error('❌ خطأ في إعداد الجدولة:', error);
+  }
 }
 
 async function sendMorningAdhkar() {
-  const groups = Object.values(db.groups).filter(g => g.settings.morningAdhkar && g.settings.active);
-  
-  for (const group of groups) {
-    const adhkar = Object.values(db.adhkar).filter(a => 
-      a.category === 'morning' && a.enabled
+  try {
+    const groups = Object.values(db.groups).filter(g => 
+      g.settings && g.settings.morningAdhkar && g.settings.active !== false
     );
     
-    if (adhkar.length > 0) {
-      const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-      await sendAdhkarToGroup(group.id, randomAdhkar);
+    console.log(`🌅 إرسال أذكار الصباح لـ ${groups.length} مجموعة`);
+    
+    for (const group of groups) {
+      const adhkar = Object.values(db.adhkar).filter(a => 
+        a.category === 'morning' && a.enabled !== false
+      );
+      
+      if (adhkar.length > 0) {
+        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
+        await sendAdhkarToGroup(group.id, randomAdhkar, 'morning');
+      }
     }
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال أذكار الصباح:', error);
   }
 }
 
 async function sendEveningAdhkar() {
-  const groups = Object.values(db.groups).filter(g => g.settings.eveningAdhkar && g.settings.active);
-  
-  for (const group of groups) {
-    const adhkar = Object.values(db.adhkar).filter(a => 
-      a.category === 'evening' && a.enabled
+  try {
+    const groups = Object.values(db.groups).filter(g => 
+      g.settings && g.settings.eveningAdhkar && g.settings.active !== false
     );
     
-    if (adhkar.length > 0) {
-      const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-      await sendAdhkarToGroup(group.id, randomAdhkar);
+    console.log(`🌇 إرسال أذكار المساء لـ ${groups.length} مجموعة`);
+    
+    for (const group of groups) {
+      const adhkar = Object.values(db.adhkar).filter(a => 
+        a.category === 'evening' && a.enabled !== false
+      );
+      
+      if (adhkar.length > 0) {
+        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
+        await sendAdhkarToGroup(group.id, randomAdhkar, 'evening');
+      }
     }
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال أذكار المساء:', error);
   }
 }
 
 async function sendRandomAdhkar() {
-  const groups = Object.values(db.groups).filter(g => g.settings.randomAdhkar && g.settings.active);
-  
-  for (const group of groups) {
-    const adhkar = Object.values(db.adhkar).filter(a => a.enabled);
+  try {
+    const groups = Object.values(db.groups).filter(g => 
+      g.settings && g.settings.randomAdhkar && g.settings.active !== false
+    );
     
-    if (adhkar.length > 0) {
-      const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-      await sendAdhkarToGroup(group.id, randomAdhkar);
+    console.log(`🔄 إرسال أذكار دورية لـ ${groups.length} مجموعة`);
+    
+    for (const group of groups) {
+      const adhkar = Object.values(db.adhkar).filter(a => a.enabled !== false);
+      
+      if (adhkar.length > 0) {
+        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
+        await sendAdhkarToGroup(group.id, randomAdhkar, 'random');
+      }
     }
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال أذكار دورية:', error);
   }
 }
 
 async function sendFridayReminder() {
-  const groups = Object.values(db.groups).filter(g => g.settings.fridayReminder && g.settings.active);
-  
-  for (const group of groups) {
-    const adhkar = Object.values(db.adhkar).filter(a => 
-      a.category === 'friday' && a.enabled
+  try {
+    const groups = Object.values(db.groups).filter(g => 
+      g.settings && g.settings.fridayReminder && g.settings.active !== false
     );
     
-    if (adhkar.length > 0) {
-      const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-      await sendAdhkarToGroup(group.id, randomAdhkar);
+    console.log(`🕌 إرسال تذكير الجمعة لـ ${groups.length} مجموعة`);
+    
+    for (const group of groups) {
+      const adhkar = Object.values(db.adhkar).filter(a => 
+        a.category === 'friday' && a.enabled !== false
+      );
+      
+      if (adhkar.length > 0) {
+        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
+        await sendAdhkarToGroup(group.id, randomAdhkar, 'friday');
+      } else {
+        // رسالة افتراضية ليوم الجمعة
+        await sendTelegramMessage(
+          group.id,
+          `🕌 *يوم الجمعة المبارك*\n\n` +
+          `• قراءة سورة الكهف لها فضل عظيم\n` +
+          `• فيه ساعة إجابة فأكثروا من الدعاء\n` +
+          `• الصلاة على النبي ﷺ\n\n` +
+          `✨ @${process.env.BOT_USERNAME || 'islamic_adhkar_bot'}`,
+          { parse_mode: 'Markdown' }
+        );
+      }
     }
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال تذكير الجمعة:', error);
   }
 }
 
-async function sendAdhkarToGroup(groupId, adhkar) {
+async function sendAdhkarToGroup(groupId, adhkar, type) {
   try {
+    const group = db.groups[groupId];
+    if (!group) return;
+    
     let message = `🕌 *${adhkar.title || 'ذكر'}*\n\n${adhkar.text}\n\n`;
     
     if (adhkar.source) {
@@ -939,14 +1159,7 @@ async function sendAdhkarToGroup(groupId, adhkar) {
     
     message += `✨ @${process.env.BOT_USERNAME || 'islamic_adhkar_bot'}`;
     
-    // إرسال مع الوسائط
-    if (adhkar.audio && db.groups[groupId].settings.includeAudio) {
-      await sendTelegramAudio(groupId, adhkar.audio, message, { parse_mode: 'Markdown' });
-    } else if (adhkar.pdf && db.groups[groupId].settings.includePDF) {
-      await sendTelegramDocument(groupId, adhkar.pdf, message, { parse_mode: 'Markdown' });
-    } else {
-      await sendTelegramMessage(groupId, message, { parse_mode: 'Markdown' });
-    }
+    await sendTelegramMessage(groupId, message, { parse_mode: 'Markdown' });
     
     // تسجيل في السجل
     if (!db.schedules[groupId]) {
@@ -956,34 +1169,23 @@ async function sendAdhkarToGroup(groupId, adhkar) {
     db.schedules[groupId].push({
       id: uuidv4(),
       adhkarId: adhkar.id,
-      type: adhkar.category,
+      type: type,
       sentAt: new Date().toISOString(),
       success: true
     });
+    
+    // حفظ قاعدة البيانات
+    await saveDatabase();
     
   } catch (error) {
     console.error(`❌ خطأ في إرسال ذكر للمجموعة ${groupId}:`, error.message);
   }
 }
 
-async function checkScheduledMessages() {
-  const now = moment();
-  const scheduled = Object.values(db.schedules).flat();
-  
-  for (const schedule of scheduled) {
-    if (schedule.scheduledTime && moment(schedule.scheduledTime).isSameOrBefore(now) && !schedule.sent) {
-      // إرسال الرسالة المجدولة
-      await sendScheduledMessage(schedule);
-      schedule.sent = true;
-      schedule.sentAt = new Date().toISOString();
-    }
-  }
-}
-
 // ==================== API Routes ====================
 
 app.get('/', (req, res) => {
-  res.send(`
+  const html = `
 <!DOCTYPE html>
 <html dir="rtl">
 <head>
@@ -991,29 +1193,136 @@ app.get('/', (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>بوت الأذكار الإسلامي - النظام المتكامل</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background: linear-gradient(135deg, #1a2980 0%, #26d0ce 100%); color: white; min-height: 100vh; padding: 40px 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .header { text-align: center; margin-bottom: 50px; }
-        h1 { font-size: 3.5em; color: #FFD700; margin-bottom: 20px; text-shadow: 3px 3px 6px rgba(0,0,0,0.3); }
-        .subtitle { font-size: 1.2em; opacity: 0.9; margin-bottom: 30px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 25px; margin: 40px 0; }
-        .stat-card { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 30px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); text-align: center; transition: transform 0.3s; }
-        .stat-card:hover { transform: translateY(-10px); background: rgba(255,255,255,0.15); }
-        .stat-number { font-size: 3em; font-weight: bold; color: #FFD700; margin-bottom: 10px; }
-        .stat-label { font-size: 1.1em; opacity: 0.8; }
-        .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; margin: 50px 0; }
-        .feature-card { background: rgba(255,255,255,0.08); padding: 25px; border-radius: 15px; border-left: 5px solid #FFD700; }
-        .feature-card h3 { color: #FFD700; margin-bottom: 15px; font-size: 1.5em; }
-        .feature-list { list-style: none; margin-top: 15px; }
-        .feature-list li { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .feature-list li:last-child { border-bottom: none; }
-        .api-section { background: rgba(0,0,0,0.2); padding: 30px; border-radius: 15px; margin-top: 40px; }
-        .api-links { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 20px; }
-        .api-link { display: inline-block; background: rgba(255,215,0,0.2); color: #FFD700; padding: 12px 25px; border-radius: 25px; text-decoration: none; border: 1px solid #FFD700; transition: all 0.3s; }
-        .api-link:hover { background: #FFD700; color: #1a2980; transform: scale(1.05); }
-        .footer { margin-top: 60px; text-align: center; padding-top: 30px; border-top: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); }
-        .status-badge { display: inline-block; padding: 8px 20px; background: #4CAF50; border-radius: 20px; font-weight: bold; margin-left: 15px; }
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+        }
+        body { 
+            background: linear-gradient(135deg, #1a2980 0%, #26d0ce 100%); 
+            color: white; 
+            min-height: 100vh; 
+            padding: 40px 20px; 
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        .header { 
+            text-align: center; 
+            margin-bottom: 50px; 
+        }
+        h1 { 
+            font-size: 3.5em; 
+            color: #FFD700; 
+            margin-bottom: 20px; 
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.3); 
+        }
+        .subtitle { 
+            font-size: 1.2em; 
+            opacity: 0.9; 
+            margin-bottom: 30px; 
+        }
+        .stats-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+            gap: 25px; 
+            margin: 40px 0; 
+        }
+        .stat-card { 
+            background: rgba(255,255,255,0.1); 
+            backdrop-filter: blur(10px); 
+            padding: 30px; 
+            border-radius: 20px; 
+            border: 1px solid rgba(255,255,255,0.2); 
+            text-align: center; 
+            transition: transform 0.3s; 
+        }
+        .stat-card:hover { 
+            transform: translateY(-10px); 
+            background: rgba(255,255,255,0.15); 
+        }
+        .stat-number { 
+            font-size: 3em; 
+            font-weight: bold; 
+            color: #FFD700; 
+            margin-bottom: 10px; 
+        }
+        .stat-label { 
+            font-size: 1.1em; 
+            opacity: 0.8; 
+        }
+        .features { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+            gap: 25px; 
+            margin: 50px 0; 
+        }
+        .feature-card { 
+            background: rgba(255,255,255,0.08); 
+            padding: 25px; 
+            border-radius: 15px; 
+            border-left: 5px solid #FFD700; 
+        }
+        .feature-card h3 { 
+            color: #FFD700; 
+            margin-bottom: 15px; 
+            font-size: 1.5em; 
+        }
+        .feature-list { 
+            list-style: none; 
+            margin-top: 15px; 
+        }
+        .feature-list li { 
+            padding: 8px 0; 
+            border-bottom: 1px solid rgba(255,255,255,0.1); 
+        }
+        .feature-list li:last-child { 
+            border-bottom: none; 
+        }
+        .api-section { 
+            background: rgba(0,0,0,0.2); 
+            padding: 30px; 
+            border-radius: 15px; 
+            margin-top: 40px; 
+        }
+        .api-links { 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 15px; 
+            margin-top: 20px; 
+        }
+        .api-link { 
+            display: inline-block; 
+            background: rgba(255,215,0,0.2); 
+            color: #FFD700; 
+            padding: 12px 25px; 
+            border-radius: 25px; 
+            text-decoration: none; 
+            border: 1px solid #FFD700; 
+            transition: all 0.3s; 
+        }
+        .api-link:hover { 
+            background: #FFD700; 
+            color: #1a2980; 
+            transform: scale(1.05); 
+        }
+        .footer { 
+            margin-top: 60px; 
+            text-align: center; 
+            padding-top: 30px; 
+            border-top: 1px solid rgba(255,255,255,0.2); 
+            color: rgba(255,255,255,0.7); 
+        }
+        .status-badge { 
+            display: inline-block; 
+            padding: 8px 20px; 
+            background: #4CAF50; 
+            border-radius: 20px; 
+            font-weight: bold; 
+            margin-left: 15px; 
+        }
         @media (max-width: 768px) { 
             h1 { font-size: 2.5em; } 
             .stat-card, .feature-card { padding: 20px; }
@@ -1050,12 +1359,12 @@ app.get('/', (req, res) => {
                 <h3>👑 لوحة تحكم المطور</h3>
                 <p>أدوات متقدمة للإدارة:</p>
                 <ul class="feature-list">
-                    <li>📝 رفع ملفات JSON للمحتوى</li>
-                    <li>🎧 إدارة الوسائط (رفع صوتيات، PDF)</li>
+                    <li>📝 إدارة المحتوى الكامل</li>
+                    <li>🎧 إدارة الوسائط المتقدمة</li>
                     <li>📨 نظام بث متقدم</li>
-                    <li>📅 جدولة متقدمة (رمضان، مناسبات)</li>
-                    <li>📂 إنشاء أقسام وفئات جديدة</li>
-                    <li>📊 تقارير وإحصائيات مفصلة</li>
+                    <li>📅 جدولة متقدمة</li>
+                    <li>📂 إنشاء أقسام جديدة</li>
+                    <li>📊 تقارير مفصلة</li>
                 </ul>
             </div>
             
@@ -1065,10 +1374,10 @@ app.get('/', (req, res) => {
                 <ul class="feature-list">
                     <li>🕌 أذكار الصباح والمساء التلقائية</li>
                     <li>📖 تذكير سورة الكهف يوم الجمعة</li>
-                    <li>🌙 مناسبات إسلامية (رمضان، الأعياد)</li>
-                    <li>🎵 وسائط صوتية للقرآن والأذكار</li>
+                    <li>🌙 مناسبات إسلامية</li>
+                    <li>🎵 وسائط صوتية</li>
                     <li>📄 ملفات PDF للتحميل</li>
-                    <li>⚡ تشغيل تلقائي في المجموعات</li>
+                    <li>⚡ تشغيل تلقائي</li>
                 </ul>
             </div>
         </div>
@@ -1078,10 +1387,7 @@ app.get('/', (req, res) => {
             <div class="api-links">
                 <a href="/health" class="api-link" target="_blank">🩺 فحص صحة النظام</a>
                 <a href="/api/stats" class="api-link" target="_blank">📊 إحصائيات النظام</a>
-                <a href="/api/groups" class="api-link" target="_blank">👥 قائمة المجموعات</a>
-                <a href="/api/adhkar" class="api-link" target="_blank">🕌 قائمة الأذكار</a>
                 <a href="/setup-webhook" class="api-link" target="_blank">⚙️ إعداد Webhook</a>
-                <a href="/admin" class="api-link" target="_blank">🎛️ واجهة الإدارة</a>
             </div>
         </div>
         
@@ -1100,24 +1406,24 @@ app.get('/', (req, res) => {
                 const data = await response.json();
                 
                 const statsContainer = document.getElementById('statsContainer');
-                statsContainer.innerHTML = `
+                statsContainer.innerHTML = \`
                     <div class="stat-card">
-                        <div class="stat-number">${data.groups || 0}</div>
+                        <div class="stat-number">\${data.groups || 0}</div>
                         <div class="stat-label">👥 مجموعات نشطة</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number">${data.users || 0}</div>
+                        <div class="stat-number">\${data.users || 0}</div>
                         <div class="stat-label">👤 مستخدمين</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number">${data.adhkar || 0}</div>
+                        <div class="stat-number">\${data.adhkar || 0}</div>
                         <div class="stat-label">🕌 أذكار</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number">${data.scheduled || 0}</div>
+                        <div class="stat-number">\${data.scheduled || 0}</div>
                         <div class="stat-label">📅 مجدول</div>
                     </div>
-                `;
+                \`;
                 
                 document.getElementById('lastUpdate').textContent = 
                     new Date(data.timestamp).toLocaleString('ar-SA');
@@ -1143,7 +1449,9 @@ app.get('/', (req, res) => {
     </script>
 </body>
 </html>
-  `);
+  `;
+  
+  res.send(html);
 });
 
 app.get('/health', (req, res) => {
@@ -1177,29 +1485,12 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
-app.get('/api/groups', (req, res) => {
-  res.json({
-    count: Object.keys(db.groups).length,
-    groups: Object.values(db.groups),
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/api/adhkar', (req, res) => {
-  res.json({
-    count: Object.keys(db.adhkar).length,
-    adhkar: Object.values(db.adhkar),
-    categories: Object.values(db.categories),
-    timestamp: new Date().toISOString()
-  });
-});
-
 app.get('/setup-webhook', async (req, res) => {
   try {
-    const webhookUrl = `${process.env.RENDER_EXTERNAL_URL || `https://${req.hostname}`}/webhook`;
+    const webhookUrl = \`\${process.env.RENDER_EXTERNAL_URL || \`https://\${req.hostname}\`}/webhook\`;
     
     const response = await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
+      \`https://api.telegram.org/bot\${process.env.BOT_TOKEN}/setWebhook\`,
       {
         url: webhookUrl,
         allowed_updates: ['message', 'callback_query'],
@@ -1235,33 +1526,33 @@ async function startServer() {
     
     // بدء الخادم
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log(`
+      console.log(\`
   🌐 ===================================================== 🌐
      ✅ الخادم يعمل بنجاح!
-     📍 http://0.0.0.0:${PORT}
-     ⏰ ${moment().format('YYYY-MM-DD HH:mm:ss')}
-     🤖 ${process.env.BOT_TOKEN ? 'البوت جاهز' : '⚠️ تأكد من BOT_TOKEN'}
+     📍 http://0.0.0.0:\${PORT}
+     ⏰ \${moment().format('YYYY-MM-DD HH:mm:ss')}
+     🤖 \${process.env.BOT_TOKEN ? 'البوت جاهز' : '⚠️ تأكد من BOT_TOKEN'}
      
      🔗 لوحة التحكم: /admin
      🔗 فحص الصحة: /health
      🔗 إعداد Webhook: /setup-webhook
   🌐 ===================================================== 🌐
-      `);
+      \`);
     });
     
     // إعداد webhook تلقائياً
     setTimeout(async () => {
       try {
         if (process.env.RENDER_EXTERNAL_URL) {
-          const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook`;
+          const webhookUrl = \`\${process.env.RENDER_EXTERNAL_URL}/webhook\`;
           await axios.post(
-            `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
+            \`https://api.telegram.org/bot\${process.env.BOT_TOKEN}/setWebhook\`,
             {
               url: webhookUrl,
               allowed_updates: ['message', 'callback_query']
             }
           );
-          console.log(`✅ تم إعداد webhook: ${webhookUrl}`);
+          console.log(\`✅ تم إعداد webhook: \${webhookUrl}\`);
         }
       } catch (error) {
         console.log('⚠️ يمكن استخدام polling mode');
@@ -1271,7 +1562,7 @@ async function startServer() {
     // حفظ قاعدة البيانات بشكل دوري
     setInterval(async () => {
       await saveDatabase();
-    }, 5 * 60 * 1000); // كل 5 دقائق
+    }, 5 * 60 * 1000);
     
     return server;
     
