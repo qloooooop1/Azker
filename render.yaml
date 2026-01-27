@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: islamic-telegram-bot-v2
+    env: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: BOT_TOKEN
+        value: 8507528865:AAGxbvXjNVg7ITo3awlwn9RRbfUiSDcngZw
+      - key: MONGODB_URI
+        sync: false
+      - key: ADMIN_GROUP_ID
+        value: "-1003595290365"
+      - key: DATABASE_GROUP_ID
+        value: "-1003624663502"
+      - key: DEVELOPER_ID
+        value: "6960704733"
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /health
+    autoDeploy: true
