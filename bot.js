@@ -1,3 +1,47 @@
+// التحقق من أن نسخة واحدة فقط تعمل
+const fs = require('fs');
+const lockFile = '/tmp/bot.lock';
+
+function acquireLock() {
+  try {
+    if (fs.existsSync(lockFile)) {
+      const lockContent = fs.readFileSync(lockFile, 'utf8');
+      const lockTime = parseInt(lockContent);
+      if (Date.now() - lockTime < 30000) { // 30 ثانية
+        console.error('⚠️ البوت يعمل بالفعل في مكان آخر');
+        process.exit(1);
+      }
+    }
+    fs.writeFileSync(lockFile, Date.now().toString());
+    return true;
+  } catch (error) {
+    console.error('خطأ في lock:', error);
+    return false;
+  }
+}
+
+function releaseLock() {
+  try {
+    if (fs.existsSync(lockFile)) {
+      fs.unlinkSync(lockFile);
+    }
+  } catch (error) {
+    console.error('خطأ في release lock:', error);
+  }
+}
+
+// في بداية startBot()
+if (!acquireLock()) {
+  console.error('❌ لا يمكن بدء البوت، ربما يعمل نسخة أخرى');
+  process.exit(1);
+}
+
+// عند إيقاف البوت
+process.on('exit', releaseLock);
+process.on('SIGINT', () => {
+  releaseLock();
+  process.exit(0);
+});
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs-extra');
