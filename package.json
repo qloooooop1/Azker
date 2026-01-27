@@ -1,41 +1,25 @@
 {
-  "name": "islamic-telegram-bot",
+  "name": "telegram-islamic-bot",
   "version": "2.0.0",
-  "description": "Islamic Telegram Bot with Azkar, Quran, and AI features",
-  "main": "index.js",
+  "description": "Telegram bot for Islamic reminders with multimedia",
+  "main": "bot.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"No tests yet\" && exit 0"
+    "start": "node bot.js",
+    "dev": "nodemon bot.js",
+    "setup": "node scripts/setup.js"
   },
-  "keywords": [
-    "telegram",
-    "bot",
-    "islamic",
-    "quran",
-    "azkar",
-    "muslim",
-    "ramadan",
-    "prayer"
-  ],
-  "author": "dev3bod",
-  "license": "MIT",
   "dependencies": {
-    "node-telegram-bot-api": "^0.66.0",
-    "axios": "^1.6.7",
+    "node-telegram-bot-api": "^0.64.0",
+    "axios": "^1.6.2",
+    "mongoose": "^8.0.0",
     "node-cron": "^3.0.3",
-    "moment-timezone": "^0.5.45",
-    "moment-hijri": "^2.30.0",
-    "dotenv": "^16.4.1",
-    "@huggingface/inference": "^2.6.4",
-    "express": "^4.18.2",
-    "node-cache": "^5.1.2"
+    "moment-timezone": "^0.5.43",
+    "fs-extra": "^11.2.0",
+    "path": "^0.12.7",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
+    "nodemon": "^3.0.1"
   }
 }
