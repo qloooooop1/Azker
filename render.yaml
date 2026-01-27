@@ -1,5 +1,5 @@
 services:
-  - type: worker  # تغيير من web إلى worker
+  - type: web  # استخدم web مع منفذ
     name: islamic-telegram-bot
     env: node
     region: frankfurt
@@ -19,4 +19,7 @@ services:
         value: "6960704733"
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "10000"
+    healthCheckPath: /health
     autoDeploy: true
