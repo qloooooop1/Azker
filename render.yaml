@@ -1,6 +1,6 @@
 services:
-  - type: web
-    name: islamic-telegram-bot-v2
+  - type: worker  # تغيير من web إلى worker
+    name: islamic-telegram-bot
     env: node
     region: frankfurt
     plan: free
@@ -19,5 +19,4 @@ services:
         value: "6960704733"
       - key: NODE_ENV
         value: production
-    healthCheckPath: /health
     autoDeploy: true
