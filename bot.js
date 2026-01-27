@@ -1,3 +1,28 @@
+require('dotenv').config();
+
+console.log(`
+╔══════════════════════════════════════════╗
+║     🕌 بوت الأذكار الإسلامي             ║
+║     الإصدار: 2.1.0                      ║
+║     المطور: @dev3bod                    ║
+║     الوقت: ${new Date().toLocaleString('ar-SA')} ║
+╚══════════════════════════════════════════╝
+`);
+
+// التحقق من المتغيرات البيئية الأساسية
+const requiredEnvVars = ['BOT_TOKEN'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ متغيرات بيئية مفقودة:', missingEnvVars);
+  console.error('🔧 يرجى إعداد ملف .env أو متغيرات البيئة في Render');
+  process.exit(1);
+}
+
+console.log('✅ تم التحقق من المتغيرات البيئية');
+console.log(`🤖 توكن البوت: ${process.env.BOT_TOKEN ? '✅ موجود' : '❌ مفقود'}`);
+
+// ... باقي كود البوت يبقى كما هو ...
 // إضافة في بداية ملف bot.js
 const express = require('express');
 const app = express();
