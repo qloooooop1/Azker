@@ -1,0 +1,49 @@
+{
+  "morning_001": {
+    "id": "morning_001",
+    "title": "أذكار الصباح",
+    "text": "أصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير",
+    "category": "morning",
+    "source": "حصن المسلم",
+    "audio": "https://example.com/audio/morning1.mp3",
+    "pdf": "https://example.com/pdf/morning-adhkar.pdf",
+    "enabled": true,
+    "repeat": 1,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  },
+  "evening_001": {
+    "id": "evening_001",
+    "title": "أذكار المساء",
+    "text": "أمسينا وأمسى الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير",
+    "category": "evening",
+    "source": "حصن المسلم",
+    "audio": "https://example.com/audio/evening1.mp3",
+    "pdf": "https://example.com/pdf/evening-adhkar.pdf",
+    "enabled": true,
+    "repeat": 1,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  },
+  "friday_001": {
+    "id": "friday_001",
+    "title": "تذكير سورة الكهف",
+    "text": "من قرأ سورة الكهف يوم الجمعة أضاء له من النور ما بين الجمعتين",
+    "category": "friday",
+    "source": "الحديث الشريف",
+    "audio": "https://example.com/audio/surah-al-kahf.mp3",
+    "pdf": "https://example.com/pdf/surah-al-kahf.pdf",
+    "enabled": true,
+    "repeat": 1,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  },
+  "random_001": {
+    "id": "random_001",
+    "title": "ذكر عشوائي",
+    "text": "سبحان الله وبحمده، سبحان الله العظيم",
+    "category": "random",
+    "source": "حصن المسلم",
+    "audio": "https://example.com/audio/random1.mp3",
+    "enabled": true,
+    "repeat": 100,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}
