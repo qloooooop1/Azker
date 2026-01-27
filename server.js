@@ -3,118 +3,505 @@ require('dotenv').config();
 console.log(`
 ╔══════════════════════════════════════════╗
 ║     🕌 بوت الأذكار الإسلامي             ║
-║     الإصدار: 3.0.0                      ║
+║     الإصدار: 3.1.0                      ║
 ║     المطور: @dev3bod                    ║
 ║     الوقت: ${new Date().toLocaleString('ar-SA')} ║
 ╚══════════════════════════════════════════╝
 `);
 
-// ==================== PART 1: EXPRESS SERVER ====================
 const express = require('express');
+const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// إعدادات أساسية
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// تسجيل الطلبات
-app.use((req, res, next) => {
-  const timestamp = new Date().toLocaleString('ar-SA');
-  console.log(`[${timestamp}] ${req.method} ${req.url}`);
-  next();
-});
+// قاعدة بيانات بسيطة في الذاكرة
+const database = {
+  groups: {},
+  users: {},
+  admins: ['6960704733'], // ID المطور
+  settings: {}
+};
 
-// ==================== PART 2: SIMPLE BOT ====================
-let bot = null;
-let botStarted = false;
+// ==================== TELEGRAM BOT FUNCTIONS ====================
 
-async function initializeBot() {
+async function sendTelegramMessage(chatId, text, options = {}) {
   try {
-    console.log('🤖 محاولة تحميل البوت...');
-    
-    // استخدم telegraf بدلاً من node-telegram-bot-api
-    const { Telegraf } = require('telegraf');
-    
-    if (!process.env.BOT_TOKEN) {
-      throw new Error('BOT_TOKEN غير موجود في متغيرات البيئة');
-    }
-    
-    bot = new Telegraf(process.env.BOT_TOKEN);
-    
-    // أمر البداية
-    bot.start((ctx) => {
-      ctx.reply(`
-🕌 *مرحباً بك في بوت الأذكار الإسلامي*
-
-✨ *المميزات:*
-• أذكار الصباح والمساء
-• تذكير سورة الكهف يوم الجمعة
-• المناسبات الإسلامية
-• ملفات صوتية وPDF
-
-👤 المطور: @dev3bod
-      `, { parse_mode: 'Markdown' });
-    });
-    
-    // أمر المساعدة
-    bot.help((ctx) => {
-      ctx.reply(`
-📚 *الأوامر المتاحة:*
-/start - بدء البوت
-/help - المساعدة
-/adhkar - أذكار عشوائية
-/quran - آيات قرآنية
-/pdf - روابط PDF
-/audio - روابط صوتية
-      `, { parse_mode: 'Markdown' });
-    });
-    
-    // أمر الأذكار
-    bot.command('adhkar', (ctx) => {
-      const adhkarList = [
-        'سبحان الله وبحمده، سبحان الله العظيم',
-        'لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير',
-        'اللهم صل على محمد وعلى آل محمد',
-        'أستغفر الله العظيم الذي لا إله إلا هو الحي القيوم وأتوب إليه'
-      ];
-      
-      const randomAdhkar = adhkarList[Math.floor(Math.random() * adhkarList.length)];
-      ctx.reply(`🕌 *ذكر عشوائي:*\n\n${randomAdhkar}`, { parse_mode: 'Markdown' });
-    });
-    
-    // بدء البوت
-    await bot.launch();
-    
-    console.log('✅ تم تشغيل البوت بنجاح!');
-    botStarted = true;
-    
-    // إعلام المطور
-    try {
-      await bot.telegram.sendMessage(
-        process.env.DEVELOPER_ID || '6960704733',
-        `🤖 *تم تشغيل البوت على Render*\n\n` +
-        `🕒 الوقت: ${new Date().toLocaleString('ar-SA')}\n` +
-        `🌐 الرابط: https://islamic-telegram-bot.onrender.com\n` +
-        `✅ الحالة: 🟢 نشط`,
-        { parse_mode: 'Markdown' }
-      );
-    } catch (error) {
-      console.log('⚠️ تعذر إعلام المطور:', error.message);
-    }
-    
-    return true;
-    
+    const response = await axios.post(
+      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: chatId,
+        text: text,
+        parse_mode: options.parse_mode || 'HTML',
+        reply_markup: options.reply_markup
+      }
+    );
+    return response.data;
   } catch (error) {
-    console.error('❌ فشل في تحميل البوت:', error.message);
-    botStarted = false;
-    return false;
+    console.error('❌ خطأ في إرسال رسالة:', error.message);
+    return null;
   }
 }
 
-// ==================== PART 3: ROUTES ====================
+async function handleStartCommand(chatId, userId, username, isGroup = false) {
+  const isDeveloper = userId === process.env.DEVELOPER_ID;
+  
+  if (isGroup) {
+    // في المجموعات: إرسال رسالة للمديرين
+    if (isDeveloper || database.admins.includes(userId.toString())) {
+      await sendTelegramMessage(
+        userId, // إرسال للخاص
+        `🎛️ *لوحة تحكم البوت*\n\n` +
+        `يمكنك التحكم في إعدادات البوت من هنا:\n\n` +
+        `👥 *إدارة المجموعات:*\n` +
+        `/group_settings - إعدادات المجموعة\n` +
+        `/group_stats - إحصائيات المجموعة\n` +
+        `/group_admins - إدارة المشرفين\n\n` +
+        `⚙️ *الإعدادات العامة:*\n` +
+        `/toggle_morning - أذكار الصباح\n` +
+        `/toggle_evening - أذكار المساء\n` +
+        `/toggle_friday - تذكير الجمعة\n\n` +
+        `👑 *لوحة المطور:*\n` +
+        `/dev_panel - لوحة التحكم المتقدمة`,
+        { parse_mode: 'Markdown' }
+      );
+      
+      // إرسال رسالة في المجموعة
+      await sendTelegramMessage(
+        chatId,
+        `✅ تم إرسال لوحة التحكم إلى رسائلك الخاصة @${username || 'المستخدم'}`
+      );
+    }
+  } else {
+    // في الخاص: عرض لوحة التحكم المناسبة
+    if (isDeveloper) {
+      // لوحة المطور
+      await sendTelegramMessage(
+        chatId,
+        `👑 *لوحة تحكم المطور*\n\n` +
+        `📊 *الإحصائيات:*\n` +
+        `• المجموعات: ${Object.keys(database.groups).length}\n` +
+        `• المستخدمين: ${Object.keys(database.users).length}\n\n` +
+        `⚙️ *الأدوات:*\n` +
+        `1. إدارة المحتوى\n` +
+        `2. إدارة المجموعات\n` +
+        `3. البث المباشر\n` +
+        `4. الإحصائيات\n\n` +
+        `🔧 *الإعدادات:*\n` +
+        `5. إعدادات النظام\n` +
+        `6. النسخ الاحتياطي\n` +
+        `7. السجلات\n\n` +
+        `📱 *أرسل الرقم أو استخدم الأوامر:*`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📝 إدارة المحتوى', callback_data: 'manage_content' }],
+              [{ text: '👥 إدارة المجموعات', callback_data: 'manage_groups' }],
+              [{ text: '📨 البث المباشر', callback_data: 'broadcast' }],
+              [{ text: '📊 الإحصائيات', callback_data: 'stats' }],
+              [{ text: '⚙️ إعدادات النظام', callback_data: 'system_settings' }],
+              [{ text: '💾 نسخة احتياطية', callback_data: 'backup' }]
+            ]
+          }
+        }
+      );
+    } else if (database.admins.includes(userId.toString())) {
+      // لوحة المشرفين
+      await sendTelegramMessage(
+        chatId,
+        `⚙️ *لوحة تحكم المشرف*\n\n` +
+        `يمكنك التحكم في المجموعات التي تديرها:\n\n` +
+        `📋 *المجموعات النشطة:*\n` +
+        `${getManagedGroups(userId)}\n\n` +
+        `🎛️ *الأدوات المتاحة:*\n` +
+        `/group_settings - إعدادات المجموعة\n` +
+        `/schedule - جدولة الأذكار\n` +
+        `/adhkar_list - قائمة الأذكار\n` +
+        `/stats - إحصائيات المجموعة`,
+        { parse_mode: 'Markdown' }
+      );
+    } else {
+      // لوحة المستخدم العادي
+      await sendTelegramMessage(
+        chatId,
+        `🕌 *مرحباً بك في بوت الأذكار الإسلامي*\n\n` +
+        `✨ *المميزات المتوفرة:*\n` +
+        `✅ أذكار الصباح والمساء تلقائياً\n` +
+        `✅ تذكير سورة الكهف يوم الجمعة\n` +
+        `✅ المناسبات الإسلامية والأعياد\n` +
+        `✅ ملفات صوتية وPDF للقرآن\n\n` +
+        `📱 *الأوامر المتاحة:*\n` +
+        `/adhkar - أذكار عشوائية\n` +
+        `/quran - آيات قرآنية\n` +
+        `/pdf - روابط ملفات PDF\n` +
+        `/audio - روابط صوتية\n` +
+        `/settings - إعداداتك\n\n` +
+        `👤 *المطور:* @dev3bod\n` +
+        `📞 *الدعم:* ${process.env.DEVELOPER_ID || '6960704733'}`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🕌 الأذكار', callback_data: 'show_adhkar' }],
+              [{ text: '📖 القرآن', callback_data: 'show_quran' }],
+              [{ text: '🎧 الوسائط', callback_data: 'show_media' }],
+              [{ text: '⚙️ الإعدادات', callback_data: 'user_settings' }]
+            ]
+          }
+        }
+      );
+    }
+  }
+}
 
-// الصفحة الرئيسية
+function getManagedGroups(userId) {
+  const groups = Object.values(database.groups).filter(g => 
+    g.admins && g.admins.includes(userId.toString())
+  );
+  return groups.map(g => `• ${g.title || g.chatId}`).join('\n') || 'لا توجد مجموعات';
+}
+
+// ==================== WEBHOOK HANDLER ====================
+
+app.post('/webhook', express.json(), async (req, res) => {
+  try {
+    const update = req.body;
+    
+    // معالجة الرسائل
+    if (update.message) {
+      const message = update.message;
+      const chatId = message.chat.id;
+      const userId = message.from.id;
+      const text = message.text || '';
+      const isGroup = message.chat.type !== 'private';
+      
+      // تحديث قاعدة البيانات
+      if (!database.users[userId]) {
+        database.users[userId] = {
+          id: userId,
+          username: message.from.username,
+          firstName: message.from.first_name,
+          lastName: message.from.last_name,
+          isAdmin: database.admins.includes(userId.toString()),
+          joinDate: new Date(),
+          lastActive: new Date()
+        };
+      }
+      
+      if (isGroup && !database.groups[chatId]) {
+        database.groups[chatId] = {
+          chatId: chatId,
+          title: message.chat.title,
+          type: message.chat.type,
+          addedBy: userId,
+          addedDate: new Date(),
+          admins: [userId.toString()],
+          settings: {
+            morningAdhkar: true,
+            eveningAdhkar: true,
+            fridayReminder: true,
+            ramadanReminders: true,
+            eidReminders: true
+          }
+        };
+      }
+      
+      // معالجة الأوامر
+      if (text.startsWith('/')) {
+        const command = text.split(' ')[0].toLowerCase();
+        
+        switch(command) {
+          case '/start':
+            await handleStartCommand(chatId, userId, message.from.username, isGroup);
+            break;
+            
+          case '/help':
+            await sendHelpMessage(chatId, userId);
+            break;
+            
+          case '/adhkar':
+            await sendRandomAdhkar(chatId);
+            break;
+            
+          case '/dev':
+          case '/dev_panel':
+            if (userId.toString() === process.env.DEVELOPER_ID) {
+              await sendDeveloperPanel(chatId);
+            }
+            break;
+            
+          case '/admin':
+            await sendAdminPanel(chatId, userId, isGroup);
+            break;
+        }
+      }
+    }
+    
+    // معالجة callback queries (الأزرار)
+    if (update.callback_query) {
+      const callback = update.callback_query;
+      const chatId = callback.message.chat.id;
+      const data = callback.data;
+      
+      await handleCallbackQuery(chatId, callback.from.id, data, callback.message.message_id);
+      
+      // إجابة على callback
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/answerCallbackQuery`,
+        {
+          callback_query_id: callback.id
+        }
+      );
+    }
+    
+    res.json({ ok: true });
+    
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+async function sendHelpMessage(chatId, userId) {
+  const isAdmin = database.admins.includes(userId.toString());
+  const isDeveloper = userId.toString() === process.env.DEVELOPER_ID;
+  
+  let helpText = `📚 *مساعدة - بوت الأذكار الإسلامي*\n\n`;
+  
+  if (isDeveloper) {
+    helpText += `👑 *أوامر المطور:*\n`;
+    helpText += `/dev_panel - لوحة التحكم\n`;
+    helpText += `/broadcast - بث رسالة\n`;
+    helpText += `/stats - إحصائيات\n`;
+    helpText += `/backup - نسخة احتياطية\n`;
+    helpText += `/restart - إعادة تشغيل\n\n`;
+  }
+  
+  if (isAdmin) {
+    helpText += `⚙️ *أوامر المشرفين:*\n`;
+    helpText += `/admin - لوحة التحكم\n`;
+    helpText += `/group_settings - إعدادات المجموعة\n`;
+    helpText += `/schedule - جدولة\n`;
+    helpText += `/adhkar_list - الأذكار\n\n`;
+  }
+  
+  helpText += `📱 *أوامر عامة:*\n`;
+  helpText += `/start - بدء البوت\n`;
+  helpText += `/adhkar - أذكار عشوائية\n`;
+  helpText += `/quran - آيات قرآنية\n`;
+  helpText += `/pdf - روابط PDF\n`;
+  helpText += `/audio - روابط صوتية\n\n`;
+  helpText += `👤 *المطور:* @dev3bod`;
+  
+  await sendTelegramMessage(chatId, helpText, { parse_mode: 'Markdown' });
+}
+
+async function sendRandomAdhkar(chatId) {
+  const adhkarList = [
+    'سبحان الله وبحمده، سبحان الله العظيم',
+    'لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير',
+    'اللهم صل على محمد وعلى آل محمد',
+    'أستغفر الله العظيم الذي لا إله إلا هو الحي القيوم وأتوب إليه',
+    'حسبي الله لا إله إلا هو عليه توكلت وهو رب العرش العظيم'
+  ];
+  
+  const randomAdhkar = adhkarList[Math.floor(Math.random() * adhkarList.length)];
+  
+  await sendTelegramMessage(
+    chatId,
+    `🕌 *ذكر عشوائي*\n\n${randomAdhkar}\n\n📖 من كتاب حصن المسلم`,
+    { parse_mode: 'Markdown' }
+  );
+}
+
+async function sendDeveloperPanel(chatId) {
+  const stats = {
+    groups: Object.keys(database.groups).length,
+    users: Object.keys(database.users).length,
+    admins: database.admins.length
+  };
+  
+  await sendTelegramMessage(
+    chatId,
+    `👑 *لوحة تحكم المطور*\n\n` +
+    `📊 *الإحصائيات:*\n` +
+    `• المجموعات النشطة: ${stats.groups}\n` +
+    `• المستخدمين: ${stats.users}\n` +
+    `• المشرفين: ${stats.admins}\n\n` +
+    `⚙️ *أدوات النظام:*\n` +
+    `1. إدارة المحتوى (الأذكار، القرآن)\n` +
+    `2. إدارة المجموعات والمستخدمين\n` +
+    `3. البث والجدولة\n` +
+    `4. الإحصائيات والتقارير\n` +
+    `5. الإعدادات المتقدمة\n` +
+    `6. النسخ الاحتياطي\n\n` +
+    `🔧 *استخدم الأزرار أدناه:*`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📝 المحتوى', callback_data: 'dev_content' },
+            { text: '👥 المجموعات', callback_data: 'dev_groups' }
+          ],
+          [
+            { text: '📨 البث', callback_data: 'dev_broadcast' },
+            { text: '📊 إحصائيات', callback_data: 'dev_stats' }
+          ],
+          [
+            { text: '⚙️ الإعدادات', callback_data: 'dev_settings' },
+            { text: '💾 نسخ احتياطي', callback_data: 'dev_backup' }
+          ],
+          [
+            { text: '🔄 إعادة تشغيل', callback_data: 'dev_restart' },
+            { text: '📝 السجلات', callback_data: 'dev_logs' }
+          ]
+        ]
+      }
+    }
+  );
+}
+
+async function sendAdminPanel(chatId, userId, isGroup) {
+  if (isGroup) {
+    const group = database.groups[chatId];
+    if (group && group.admins.includes(userId.toString())) {
+      await sendTelegramMessage(
+        chatId,
+        `⚙️ *إدارة المجموعة*\n\n` +
+        `📝 *${group.title || 'المجموعة'}*\n\n` +
+        `✅ *الميزات المفعلة:*\n` +
+        `• أذكار الصباح: ${group.settings.morningAdhkar ? '✅' : '❌'}\n` +
+        `• أذكار المساء: ${group.settings.eveningAdhkar ? '✅' : '❌'}\n` +
+        `• تذكير الجمعة: ${group.settings.fridayReminder ? '✅' : '❌'}\n\n` +
+        `🎛️ *الأدوات:*\n` +
+        `1. تفعيل/تعطيل الميزات\n` +
+        `2. إدارة المشرفين\n` +
+        `3. جدولة الأذكار\n` +
+        `4. إحصائيات المجموعة`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🔄 الميزات', callback_data: 'group_features' },
+                { text: '👥 المشرفين', callback_data: 'group_admins' }
+              ],
+              [
+                { text: '⏰ الجدولة', callback_data: 'group_schedule' },
+                { text: '📊 الإحصائيات', callback_data: 'group_stats' }
+              ]
+            ]
+          }
+        }
+      );
+    }
+  }
+}
+
+async function handleCallbackQuery(chatId, userId, data, messageId) {
+  console.log(`Callback: ${data} from ${userId}`);
+  
+  try {
+    switch(data) {
+      case 'show_adhkar':
+        await sendRandomAdhkar(chatId);
+        break;
+        
+      case 'user_settings':
+        await sendTelegramMessage(
+          chatId,
+          `⚙️ *إعدادات المستخدم*\n\n` +
+          `هنا يمكنك تعديل إعداداتك الشخصية:\n\n` +
+          `• اللغة\n` +
+          `• التوقيت\n` +
+          `• الإشعارات\n\n` +
+          `🔧 *قريباً...*`,
+          { parse_mode: 'Markdown' }
+        );
+        break;
+        
+      case 'dev_content':
+        if (userId.toString() === process.env.DEVELOPER_ID) {
+          await sendTelegramMessage(
+            chatId,
+            `📝 *إدارة المحتوى*\n\n` +
+            `1. الأذكار (الصباح، المساء، دورية)\n` +
+            `2. القرآن والسور\n` +
+            `3. المناسبات الإسلامية\n` +
+            `4. الوسائط (صوت، PDF)\n\n` +
+            `📌 *اختر القسم:*`,
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    { text: '🕌 الأذكار', callback_data: 'manage_adhkar' },
+                    { text: '📖 القرآن', callback_data: 'manage_quran' }
+                  ],
+                  [
+                    { text: '🎯 المناسبات', callback_data: 'manage_events' },
+                    { text: '🎧 الوسائط', callback_data: 'manage_media' }
+                  ],
+                  [
+                    { text: '◀️ رجوع', callback_data: 'back_to_dev' }
+                  ]
+                ]
+              }
+            }
+          );
+        }
+        break;
+        
+      case 'manage_adhkar':
+        await sendTelegramMessage(
+          chatId,
+          `🕌 *إدارة الأذكار*\n\n` +
+          `• أذكار الصباح\n` +
+          `• أذكار المساء\n` +
+          `• أذكار دورية\n` +
+          `• أدعية خاصة\n\n` +
+          `📌 *الأدوات:*\n` +
+          `1. إضافة ذكر جديد\n` +
+          `2. تعديل الذكر\n` +
+          `3. حذف ذكر\n` +
+          `4. تفعيل/تعطيل\n` +
+          `5. تصدير الكل`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '➕ إضافة', callback_data: 'add_adhkar' },
+                  { text: '✏️ تعديل', callback_data: 'edit_adhkar' }
+                ],
+                [
+                  { text: '🗑️ حذف', callback_data: 'delete_adhkar' },
+                  { text: '⚙️ تفعيل/تعطيل', callback_data: 'toggle_adhkar' }
+                ],
+                [
+                  { text: '📤 تصدير', callback_data: 'export_adhkar' },
+                  { text: '◀️ رجوع', callback_data: 'dev_content' }
+                ]
+              ]
+            }
+          }
+        );
+        break;
+        
+      case 'back_to_dev':
+        await sendDeveloperPanel(chatId);
+        break;
+    }
+  } catch (error) {
+    console.error('Error handling callback:', error);
+  }
+}
+
+// ==================== WEB SERVER ROUTES ====================
+
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -124,373 +511,156 @@ app.get('/', (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>بوت الأذكار الإسلامي</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Arial', sans-serif;
-        }
-        
-        body {
-            background: linear-gradient(135deg, #1a2980, #26d0ce);
-            color: white;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        
-        .container {
-            width: 100%;
-            max-width: 800px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        h1 {
-            color: #ffd700;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 2.5em;
-        }
-        
-        .status {
-            background: ${botStarted ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)'};
-            border: 2px solid ${botStarted ? '#4CAF50' : '#f44336'};
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 1.2em;
-        }
-        
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .info-box {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 20px;
-            border-radius: 10px;
-            border-left: 5px solid #ffd700;
-        }
-        
-        .info-box h3 {
-            color: #ffd700;
-            margin-bottom: 10px;
-        }
-        
-        .api-links {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 20px;
-        }
-        
-        .api-link {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 25px;
-            text-decoration: none;
-            transition: all 0.3s;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        .api-link:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
-        }
-        
-        .footer {
-            margin-top: 40px;
-            text-align: center;
-            padding-top: 20px;
-            border-top: 1px solid rgba(255, 255, 255, 0.2);
-            color: rgba(255, 255, 255, 0.8);
-        }
-        
-        .stats {
-            display: flex;
-            justify-content: space-around;
-            margin: 20px 0;
-            flex-wrap: wrap;
-        }
-        
-        .stat {
-            text-align: center;
-            padding: 15px;
-        }
-        
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #ffd700;
-        }
-        
-        .stat-label {
-            font-size: 0.9em;
-            opacity: 0.8;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: linear-gradient(135deg, #1a2980, #26d0ce); color: white; 
+               min-height: 100vh; padding: 20px; font-family: Arial, sans-serif; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 { text-align: center; margin: 30px 0; color: #ffd700; }
+        .card { background: rgba(255,255,255,0.1); padding: 25px; border-radius: 15px; 
+                margin: 20px 0; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); }
+        .command { background: rgba(0,0,0,0.2); padding: 10px 15px; border-radius: 8px; 
+                   margin: 8px 0; font-family: monospace; border-right: 4px solid #ffd700; }
+        .section-title { color: #ffd700; margin: 20px 0 10px 0; padding-bottom: 10px; 
+                         border-bottom: 2px solid rgba(255,255,255,0.2); }
+        .status { text-align: center; padding: 15px; background: rgba(76,175,80,0.2); 
+                  border-radius: 10px; margin: 20px 0; border: 2px solid #4CAF50; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🕌 بوت الأذكار الإسلامي</h1>
+        <h1>🕌 بوت الأذكار الإسلامي - نظام الأوامر</h1>
         
         <div class="status">
-            ${botStarted ? '✅ البوت يعمل بنجاح' : '⚠️ البوت غير نشط'}
+            ✅ النظام يعمل بنجاح | المنفذ: ${PORT}
         </div>
         
-        <div class="info-grid">
-            <div class="info-box">
-                <h3>📊 معلومات النظام</h3>
-                <p>الإصدار: 3.0.0</p>
-                <p>Node.js: <span id="nodeVersion">${process.version}</span></p>
-                <p>المنفذ: ${PORT}</p>
-                <p>البيئة: ${process.env.NODE_ENV || 'production'}</p>
-            </div>
+        <div class="card">
+            <h2 class="section-title">📱 أوامر البوت في تليجرام</h2>
             
-            <div class="info-box">
-                <h3>✨ المميزات</h3>
-                <p>• أذكار الصباح والمساء</p>
-                <p>• تذكير سورة الكهف</p>
-                <p>• المناسبات الإسلامية</p>
-                <p>• ملفات صوتية وPDF</p>
-            </div>
+            <h3>👤 للمستخدمين العاديين:</h3>
+            <div class="command">/start - فتح البوت والترحيب</div>
+            <div class="command">/help - عرض رسالة المساعدة</div>
+            <div class="command">/adhkar - أذكار عشوائية</div>
+            <div class="command">/quran - آيات قرآنية</div>
+            <div class="command">/pdf - روابط ملفات PDF</div>
+            <div class="command">/audio - روابط صوتية</div>
             
-            <div class="info-box">
-                <h3>👤 معلومات الاتصال</h3>
-                <p>المطور: @dev3bod</p>
-                <p>الدعم: ${process.env.DEVELOPER_ID || '6960704733'}</p>
-                <p>المجموعة: @islamic_reminders</p>
-            </div>
+            <h3>⚙️ للمشرفين في المجموعات:</h3>
+            <div class="command">/start - (في الخاص) يفتح لوحة التحكم</div>
+            <div class="command">/admin - إدارة البوت في المجموعة</div>
+            <div class="command">/group_settings - إعدادات المجموعة</div>
+            <div class="command">/stats - إحصائيات المجموعة</div>
+            
+            <h3>👑 للمطور:</h3>
+            <div class="command">/dev أو /dev_panel - لوحة تحكم المطور</div>
+            <div class="command">/broadcast - بث رسالة لجميع المجموعات</div>
+            <div class="command">/stats - إحصائيات النظام</div>
+            <div class="command">/backup - نسخة احتياطية</div>
+            <div class="command">/restart - إعادة تشغيل البوت</div>
         </div>
         
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-number" id="uptime">0</div>
-                <div class="stat-label">ثانية تشغيل</div>
-            </div>
+        <div class="card">
+            <h2 class="section-title">🎯 كيفية فتح لوحة التحكم</h2>
             
-            <div class="stat">
-                <div class="stat-number" id="memory">0</div>
-                <div class="stat-label">ميجابايت</div>
-            </div>
+            <h3>للمشرفين في المجموعات:</h3>
+            <p>1. أرسل <strong>/start</strong> في المجموعة</p>
+            <p>2. سيرسل لك البوت لوحة التحكم في رسائلك الخاصة</p>
+            <p>3. يمكنك التحكم في إعدادات المجموعة من هناك</p>
             
-            <div class="stat">
-                <div class="stat-number">${botStarted ? '🟢' : '🔴'}</div>
-                <div class="stat-label">حالة البوت</div>
-            </div>
+            <h3>للمطور:</h3>
+            <p>1. أرسل <strong>/dev</strong> أو <strong>/dev_panel</strong></p>
+            <p>2. ستظهر لك لوحة التحكم المتقدمة</p>
+            <p>3. يمكنك إدارة المحتوى، المجموعات، البث، وغيرها</p>
+            
+            <h3>للمستخدمين العاديين:</h3>
+            <p>1. أرسل <strong>/start</strong></p>
+            <p>2. ستظهر لك واجهة المستخدم مع خيارات الأذكار والقرآن</p>
         </div>
         
-        <div class="api-links">
-            <a href="/health" class="api-link" target="_blank">🩺 فحص الصحة</a>
-            <a href="/api/status" class="api-link" target="_blank">📊 حالة النظام</a>
-            <a href="/api/start-bot" class="api-link" target="_blank">🚀 تشغيل البوت</a>
-            <a href="/api/stop-bot" class="api-link" target="_blank">🛑 إيقاف البوت</a>
-        </div>
-        
-        <div class="footer">
-            <p>© 2024 بوت الأذكار الإسلامي | يستضاف على Render</p>
-            <p>آخر تحديث: <span id="timestamp">${new Date().toLocaleString('ar-SA')}</span></p>
+        <div class="card">
+            <h2 class="section-title">🔗 روابط مهمة</h2>
+            <p>📞 المطور: @dev3bod</p>
+            <p>🆔 ID المطور: ${process.env.DEVELOPER_ID || '6960704733'}</p>
+            <p>🌐 رابط البوت: <a href="https://t.me/${process.env.BOT_USERNAME || 'your_bot'}" style="color:#ffd700;">فتح في تليجرام</a></p>
+            <p>📊 حالة النظام: <a href="/health" style="color:#ffd700;">فحص الصحة</a></p>
         </div>
     </div>
-    
-    <script>
-        // تحديث وقت التشغيل
-        function updateUptime() {
-            const startTime = Date.now();
-            setInterval(() => {
-                const uptime = Math.floor((Date.now() - startTime) / 1000);
-                document.getElementById('uptime').textContent = uptime;
-            }, 1000);
-        }
-        
-        // تحديث استخدام الذاكرة
-        function updateMemory() {
-            fetch('/health')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.memory) {
-                        const usedMB = Math.round(data.memory.heapUsed / 1024 / 1024);
-                        document.getElementById('memory').textContent = usedMB;
-                    }
-                })
-                .catch(err => console.error(err));
-        }
-        
-        // تحديث الوقت
-        function updateTime() {
-            const now = new Date();
-            document.getElementById('timestamp').textContent = 
-                now.toLocaleString('ar-SA', { timeZone: 'Asia/Riyadh' });
-        }
-        
-        // التحديث الأولي
-        updateUptime();
-        updateMemory();
-        updateTime();
-        
-        // تحديث الذاكرة كل 10 ثواني
-        setInterval(updateMemory, 10000);
-        
-        // تحديث الوقت كل ثانية
-        setInterval(updateTime, 1000);
-    </script>
 </body>
 </html>
   `);
 });
 
-// فحص صحة النظام
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    bot_running: botStarted,
+    bot: 'running',
+    webhook: 'active',
+    database: {
+      groups: Object.keys(database.groups).length,
+      users: Object.keys(database.users).length
+    },
     uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-    memory: process.memoryUsage(),
-    node_version: process.version,
-    platform: process.platform,
-    port: PORT,
-    env: process.env.NODE_ENV || 'production'
+    timestamp: new Date().toISOString()
   });
 });
 
-// حالة النظام
-app.get('/api/status', (req, res) => {
-  res.json({
-    bot: {
-      running: botStarted,
-      token_configured: !!process.env.BOT_TOKEN,
-      developer_id: process.env.DEVELOPER_ID || '6960704733'
-    },
-    server: {
-      port: PORT,
-      uptime: process.uptime(),
-      memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB'
-    },
-    render: {
-      service: 'web',
-      region: 'frankfurt',
-      url: 'https://islamic-telegram-bot.onrender.com'
-    }
-  });
-});
-
-// تشغيل البوت يدوياً
-app.get('/api/start-bot', async (req, res) => {
-  if (botStarted) {
-    return res.json({ success: false, message: 'البوت يعمل بالفعل' });
-  }
-  
-  const result = await initializeBot();
-  res.json({ 
-    success: result, 
-    message: result ? 'تم تشغيل البوت بنجاح' : 'فشل تشغيل البوت'
-  });
-});
-
-// إيقاف البوت يدوياً
-app.get('/api/stop-bot', (req, res) => {
-  if (!botStarted || !bot) {
-    return res.json({ success: false, message: 'البوت غير مشغل' });
-  }
-  
+app.get('/setup-webhook', async (req, res) => {
   try {
-    bot.stop();
-    botStarted = false;
-    res.json({ success: true, message: 'تم إيقاف البوت' });
+    const webhookUrl = `https://${req.hostname}/webhook`;
+    const response = await axios.post(
+      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
+      {
+        url: webhookUrl,
+        allowed_updates: ['message', 'callback_query']
+      }
+    );
+    
+    res.json({
+      success: response.data.ok,
+      message: 'تم إعداد webhook بنجاح',
+      url: webhookUrl
+    });
+    
   } catch (error) {
-    res.json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 });
 
-// صفحة 404
-app.use((req, res) => {
-  res.status(404).send(`
-    <div style="text-align: center; padding: 50px; color: white;">
-      <h1 style="font-size: 4em;">404</h1>
-      <p style="font-size: 1.5em;">الصفحة غير موجودة</p>
-      <a href="/" style="color: #ffd700; text-decoration: none;">العودة للرئيسية</a>
-    </div>
-  `);
-});
-
-// ==================== PART 4: START SERVER ====================
+// ==================== START SERVER ====================
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`
   🌐 ===================================================== 🌐
      الخادم يعمل على: http://0.0.0.0:${PORT}
      الوقت: ${new Date().toLocaleString('ar-SA')}
      إصدار Node: ${process.version}
+     
+     🔗 لوحة الأوامر: https://${process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:' + PORT}
+     🔗 إعداد Webhook: /setup-webhook
+     🔗 فحص الصحة: /health
   🌐 ===================================================== 🌐
   `);
-  
-  // محاولة تشغيل البوت بعد بدء الخادم
-  setTimeout(async () => {
-    await initializeBot();
-  }, 3000);
 });
 
-// ==================== PART 5: KEEP ALIVE MECHANISM ====================
-// هذه الدالة تحافظ على تشغيل الخادم
-function keepAlive() {
-  console.log(`🟢 الخادم لا يزال يعمل (${Math.floor(process.uptime())}s)`);
-  
-  // إرسال طلب إلى نفس الخادم للحفاظ على نشاطه
-  if (process.env.RENDER_EXTERNAL_URL) {
-    fetch(`${process.env.RENDER_EXTERNAL_URL}/health`)
-      .then(() => console.log('✅ تم تجديد النشاط'))
-      .catch(err => console.log('⚠️ خطأ في تجديد النشاط:', err.message));
+// إعداد webhook تلقائياً
+setTimeout(async () => {
+  try {
+    if (process.env.RENDER_EXTERNAL_URL) {
+      const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook`;
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
+        {
+          url: webhookUrl,
+          allowed_updates: ['message', 'callback_query']
+        }
+      );
+      console.log(`✅ تم إعداد webhook: ${webhookUrl}`);
+    }
+  } catch (error) {
+    console.log('⚠️ لم يتم إعداد webhook (يمكن استخدام polling)');
   }
-}
+}, 5000);
 
-// تشغيل keep-alive كل 5 دقائق
-setInterval(keepAlive, 5 * 60 * 1000);
-
-// ==================== PART 6: GRACEFUL SHUTDOWN ====================
-process.on('SIGTERM', () => {
-  console.log('🛑 تلقي إشارة SIGTERM');
-  if (bot) {
-    bot.stop();
-  }
-  server.close(() => {
-    console.log('✅ تم إيقاف الخادم');
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('🛑 تلقي إشارة SIGINT');
-  if (bot) {
-    bot.stop();
-  }
-  server.close(() => {
-    console.log('✅ تم إيقاف الخادم');
-    process.exit(0);
-  });
-});
-
-// منع الخادم من الخروج
-process.on('uncaughtException', (error) => {
-  console.error('🔥 خطأ غير متوقع:', error);
-  // لا تخرج من العملية، فقط سجل الخطأ
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️ وعد مرفوض:', reason);
-});
-
-// ==================== PART 7: EXPORT FOR RENDER ====================
 module.exports = server;
