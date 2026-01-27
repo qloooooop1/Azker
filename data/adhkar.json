@@ -1,0 +1,198 @@
+{
+  "categories": {
+    "morning": {
+      "name": "أذكار الصباح",
+      "enabled": true,
+      "schedule": "0 6 * * *",
+      "items": [
+        {
+          "id": "morning_001",
+          "text": "أصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير",
+          "source": "حصن المسلم - حديث صحيح",
+          "audio": "https://server.islamic.com/audio/morning/001.mp3",
+          "repeat": 1,
+          "rewards": "حسنات كثيرة"
+        },
+        {
+          "id": "morning_002",
+          "text": "اللهم بك أصبحنا، وبك أمسينا، وبك نحيا، وبك نموت وإليك النشور",
+          "source": "حصن المسلم - رواه الترمذي",
+          "audio": "https://server.islamic.com/audio/morning/002.mp3",
+          "repeat": 3,
+          "rewards": "رضا الله تعالى"
+        }
+      ]
+    },
+    "evening": {
+      "name": "أذكار المساء",
+      "enabled": true,
+      "schedule": "0 18 * * *",
+      "items": [
+        {
+          "id": "evening_001",
+          "text": "أمسينا وأمسى الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له",
+          "source": "حصن المسلم",
+          "audio": "https://server.islamic.com/audio/evening/001.mp3",
+          "repeat": 1,
+          "rewards": "حماية الليل"
+        }
+      ]
+    },
+    "friday": {
+      "name": "أذكار يوم الجمعة",
+      "enabled": true,
+      "schedule": "0 11 * * 5",
+      "items": [
+        {
+          "id": "friday_001",
+          "text": "قراءة سورة الكهف نور ما بين الجمعتين",
+          "source": "الحديث الشريف",
+          "pdf": "https://server.islamic.com/pdf/surah-al-kahf.pdf",
+          "audio": "https://server.islamic.com/audio/quran/surah-al-kahf.mp3",
+          "rewards": "نور بين الجمعتين"
+        }
+      ]
+    },
+    "ramadan": {
+      "name": "أذكار رمضان",
+      "enabled": true,
+      "schedule": "0 6,12,18,21 * 9 *",
+      "items": [
+        {
+          "id": "ramadan_001",
+          "text": "اللهم بلغنا رمضان وأعنا على الصيام والقيام",
+          "source": "حصن المسلم",
+          "audio": "https://server.islamic.com/audio/ramadan/001.mp3"
+        }
+      ]
+    },
+    "arafat": {
+      "name": "أذكار يوم عرفة",
+      "enabled": true,
+      "schedule": "0 6 * * 9",
+      "items": [
+        {
+          "id": "arafat_001",
+          "text": "لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير",
+          "source": "حصن المسلم",
+          "audio": "https://server.islamic.com/audio/arafat/001.mp3",
+          "repeat": 100
+        }
+      ]
+    },
+    "eid": {
+      "name": "تكبيرات العيد",
+      "enabled": true,
+      "schedule": "0 6 * 10,12 *",
+      "items": [
+        {
+          "id": "eid_001",
+          "text": "الله أكبر الله أكبر الله أكبر، لا إله إلا الله، الله أكبر الله أكبر، ولله الحمد",
+          "source": "السنة النبوية",
+          "audio": "https://server.islamic.com/audio/eid/takbeerat.mp3",
+          "repeat": 10
+        }
+      ]
+    },
+    "ashura": {
+      "name": "أذكار عاشوراء",
+      "enabled": true,
+      "schedule": "0 6 10 1 *",
+      "items": [
+        {
+          "id": "ashura_001",
+          "text": "صيام يوم عاشوراء يكفر سنة ماضية",
+          "source": "صحيح مسلم",
+          "audio": "https://server.islamic.com/audio/ashura/001.mp3"
+        }
+      ]
+    },
+    "last_ten": {
+      "name": "العشر الأواخر",
+      "enabled": true,
+      "schedule": "0 2 * 9 21-30",
+      "items": [
+        {
+          "id": "lastten_001",
+          "text": "اللهم إنك عفو تحب العفو فاعف عني",
+          "source": "حصن المسلم",
+          "audio": "https://server.islamic.com/audio/lastten/001.mp3",
+          "repeat": 100
+        }
+      ]
+    },
+    "prayer_times": {
+      "name": "أذكار بعد الصلاة",
+      "enabled": true,
+      "schedule": "0 */2 * * *",
+      "items": [
+        {
+          "id": "prayer_001",
+          "text": "سبحان الله (33)، الحمد لله (33)، الله أكبر (34)",
+          "source": "حصن المسلم",
+          "audio": "https://server.islamic.com/audio/prayer/001.mp3"
+        }
+      ]
+    }
+  },
+  "quran_audio": [
+    {
+      "surah": "الفاتحة",
+      "url": "https://everyayah.com/data/Abdul_Basit_Murattal_128kbps/001.mp3",
+      "reciter": "عبد الباسط عبد الصمد"
+    },
+    {
+      "surah": "البقرة",
+      "url": "https://everyayah.com/data/Abdul_Basit_Murattal_128kbps/002.mp3",
+      "reciter": "عبد الباسط عبد الصمد"
+    },
+    {
+      "surah": "الكهف",
+      "url": "https://everyayah.com/data/Abdul_Basit_Murattal_128kbps/018.mp3",
+      "reciter": "عبد الباسط عبد الصمد",
+      "pdf": "https://server.islamic.com/pdf/surah-al-kahf.pdf"
+    }
+  ],
+  "resources": {
+    "pdf_files": [
+      {
+        "name": "سورة الكهف كاملة",
+        "url": "https://server.islamic.com/pdf/surah-al-kahf.pdf",
+        "type": "quran"
+      },
+      {
+        "name": "حصن المسلم PDF",
+        "url": "https://server.islamic.com/pdf/hisn-al-muslim.pdf",
+        "type": "book"
+      },
+      {
+        "name": "أذكار الصباح والمساء",
+        "url": "https://server.islamic.com/pdf/morning-evening-adhkar.pdf",
+        "type": "adhkar"
+      }
+    ],
+    "audio_collections": [
+      {
+        "name": "القرآن الكريم كامل",
+        "url": "https://server.islamic.com/audio/quran/full.zip",
+        "size": "2.5GB"
+      },
+      {
+        "name": "أذكار مسموعة",
+        "url": "https://server.islamic.com/audio/adhkar-collection.zip",
+        "size": "500MB"
+      },
+      {
+        "name": "تكبيرات العيد",
+        "url": "https://server.islamic.com/audio/eid-collection.zip",
+        "size": "100MB"
+      }
+    ]
+  },
+  "settings": {
+    "default_interval": 60,
+    "timezone": "Asia/Riyadh",
+    "max_groups": 1000,
+    "backup_enabled": true
+  }
+}
