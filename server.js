@@ -151,6 +151,14 @@ async function initializeDefaultData() {
             category: 'morning',
             source: 'حصن المسلم',
             enabled: true
+          },
+          'evening_001': {
+            id: 'evening_001',
+            title: 'أذكار المساء',
+            text: 'أمسينا وأمسى الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير',
+            category: 'evening',
+            source: 'حصن المسلم',
+            enabled: true
           }
         };
       }
@@ -594,6 +602,9 @@ async function handleSetAction(userId, type, groupId, messageId) {
     }
     
     // حفظ حالة المستخدم للرد التالي
+    if (!db.users[userId]) {
+      db.users[userId] = {};
+    }
     if (!db.users[userId].pendingAction) {
       db.users[userId].pendingAction = {};
     }
@@ -907,6 +918,7 @@ async function handleSetIntervalResponse(userId, text, groupId) {
     
     const group = db.groups[groupId];
     if (group) {
+      if (!group.settings) group.settings = {};
       group.settings.randomInterval = minutes;
       await sendTelegramMessage(
         userId,
@@ -943,6 +955,8 @@ async function handleSetTimeResponse(userId, text, groupId) {
     
     const group = db.groups[groupId];
     if (group) {
+      if (!group.settings) group.settings = {};
+      
       if (type === 'صباح' || type === 'morning') {
         group.settings.morningTime = time;
         await sendTelegramMessage(userId, `✅ تم تعيين وقت الصباح إلى ${time}`);
@@ -1135,7 +1149,7 @@ async function sendFridayReminder() {
           `• قراءة سورة الكهف لها فضل عظيم\n` +
           `• فيه ساعة إجابة فأكثروا من الدعاء\n` +
           `• الصلاة على النبي ﷺ\n\n` +
-          `✨ @${process.env.BOT_USERNAME || 'islamic_adhkar_bot'}`,
+          `✨ بوت الأذكار الإسلامي`,
           { parse_mode: 'Markdown' }
         );
       }
@@ -1157,7 +1171,7 @@ async function sendAdhkarToGroup(groupId, adhkar, type) {
       message += `📖 ${adhkar.source}\n\n`;
     }
     
-    message += `✨ @${process.env.BOT_USERNAME || 'islamic_adhkar_bot'}`;
+    message += `✨ بوت الأذكار الإسلامي`;
     
     await sendTelegramMessage(groupId, message, { parse_mode: 'Markdown' });
     
@@ -1185,8 +1199,10 @@ async function sendAdhkarToGroup(groupId, adhkar, type) {
 // ==================== API Routes ====================
 
 app.get('/', (req, res) => {
-  const html = `
-<!DOCTYPE html>
+  const currentTime = new Date().toLocaleString('ar-SA');
+  const developerId = process.env.DEVELOPER_ID || '6960704733';
+  
+  const html = `<!DOCTYPE html>
 <html dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -1392,8 +1408,8 @@ app.get('/', (req, res) => {
         </div>
         
         <div class="footer">
-            <p>👤 المطور: @dev3bod | 📞 الدعم: ${process.env.DEVELOPER_ID || '6960704733'}</p>
-            <p>⚡ يستضاف على Render | ⏰ الوقت: <span id="currentTime">${new Date().toLocaleString('ar-SA')}</span></p>
+            <p>👤 المطور: @dev3bod | 📞 الدعم: ${developerId}</p>
+            <p>⚡ يستضاف على Render | ⏰ الوقت: <span id="currentTime">${currentTime}</span></p>
             <p>🔄 آخر تحديث: <span id="lastUpdate">جاري التحميل...</span></p>
         </div>
     </div>
@@ -1448,8 +1464,7 @@ app.get('/', (req, res) => {
         setInterval(updateCurrentTime, 1000);
     </script>
 </body>
-</html>
-  `;
+</html>`;
   
   res.send(html);
 });
@@ -1487,10 +1502,11 @@ app.get('/api/stats', (req, res) => {
 
 app.get('/setup-webhook', async (req, res) => {
   try {
-    const webhookUrl = \`\${process.env.RENDER_EXTERNAL_URL || \`https://\${req.hostname}\`}/webhook\`;
+    const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://${req.hostname}`;
+    const webhookUrl = `${baseUrl}/webhook`;
     
     const response = await axios.post(
-      \`https://api.telegram.org/bot\${process.env.BOT_TOKEN}/setWebhook\`,
+      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
       {
         url: webhookUrl,
         allowed_updates: ['message', 'callback_query'],
@@ -1526,33 +1542,33 @@ async function startServer() {
     
     // بدء الخادم
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log(\`
+      console.log(`
   🌐 ===================================================== 🌐
      ✅ الخادم يعمل بنجاح!
-     📍 http://0.0.0.0:\${PORT}
-     ⏰ \${moment().format('YYYY-MM-DD HH:mm:ss')}
-     🤖 \${process.env.BOT_TOKEN ? 'البوت جاهز' : '⚠️ تأكد من BOT_TOKEN'}
+     📍 http://0.0.0.0:${PORT}
+     ⏰ ${moment().format('YYYY-MM-DD HH:mm:ss')}
+     🤖 ${process.env.BOT_TOKEN ? 'البوت جاهز' : '⚠️ تأكد من BOT_TOKEN'}
      
      🔗 لوحة التحكم: /admin
      🔗 فحص الصحة: /health
      🔗 إعداد Webhook: /setup-webhook
   🌐 ===================================================== 🌐
-      \`);
+      `);
     });
     
     // إعداد webhook تلقائياً
     setTimeout(async () => {
       try {
         if (process.env.RENDER_EXTERNAL_URL) {
-          const webhookUrl = \`\${process.env.RENDER_EXTERNAL_URL}/webhook\`;
+          const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook`;
           await axios.post(
-            \`https://api.telegram.org/bot\${process.env.BOT_TOKEN}/setWebhook\`,
+            `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
             {
               url: webhookUrl,
               allowed_updates: ['message', 'callback_query']
             }
           );
-          console.log(\`✅ تم إعداد webhook: \${webhookUrl}\`);
+          console.log(`✅ تم إعداد webhook: ${webhookUrl}`);
         }
       } catch (error) {
         console.log('⚠️ يمكن استخدام polling mode');
