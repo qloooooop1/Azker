@@ -4,7 +4,7 @@ services:
     env: node
     region: frankfurt
     plan: free
-    buildCommand: npm install && npm audit fix
+    buildCommand: npm install
     startCommand: node server.js
     envVars:
       - key: BOT_TOKEN
@@ -18,7 +18,7 @@ services:
       - key: PORT
         value: "10000"
       - key: NODE_ENV
-        value: production
+        value: "production"
       - key: TIMEZONE
         value: "Asia/Riyadh"
     healthCheckPath: /health
