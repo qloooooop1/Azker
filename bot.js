@@ -1,3 +1,18 @@
+// إضافة في بداية ملف bot.js
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// بدء خادم ويب بسيط
+app.get('/', (req, res) => {
+  res.json({ status: 'Bot is running', timestamp: new Date().toISOString() });
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Health check server running on port ${PORT}`);
+});
+
+// باقي كود البوت يبقى كما هو...
 // التحقق من أن نسخة واحدة فقط تعمل
 const fs = require('fs');
 const lockFile = '/tmp/bot.lock';
