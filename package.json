@@ -30,6 +30,7 @@
     "npm": ">=8.0.0"
   },
   "dependencies": {
+    "telegraf": "^4.16.3",  // ⬅️ أضف هذا السطر
     "axios": "^1.7.7",
     "moment-timezone": "^0.5.45",
     "fs-extra": "^11.2.0",
