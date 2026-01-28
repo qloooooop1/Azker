@@ -1,14 +1,19 @@
 {
-  "name": "telegram-islamic-bot",
+  "name": "telegram-islamic-bot-enhanced",
   "version": "4.0.0",
-  "description": "نظام متكامل لإدارة الأذكار الإسلامية عبر تليجرام",
+  "description": "نظام متكامل لإدارة الأذكار الإسلامية عبر تليجرام - النسخة المطورة",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "setup": "node scripts/init-db.js",
+    "bot": "node bot.js",
+    "setup": "node setup.js",
+    "init-db": "node scripts/init-db.js",
     "backup": "node scripts/backup.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "restore": "node scripts/restore.js backup-file.json",
+    "test": "echo \"No tests specified\" && exit 0",
+    "admin": "node server.js",
+    "enhanced": "node bot.js"
   },
   "keywords": [
     "telegram",
@@ -17,7 +22,10 @@
     "adhkar",
     "quran",
     "reminders",
-    "arabic"
+    "arabic",
+    "enhanced",
+    "media",
+    "streaming"
   ],
   "author": "dev3bod",
   "license": "MIT",
@@ -38,7 +46,11 @@
     "uuid": "^10.0.0",
     "fs-extra": "^11.2.0",
     "path": "^0.12.7",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "express-session": "^1.17.3",
+    "telegram-session": "^1.0.0",
+    "node-telegram-bot-api": "^0.64.0",
+    "mongoose": "^7.5.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
