@@ -17,6 +17,8 @@ const moment = require('moment-timezone');
 const cron = require('node-cron');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
+const multer = require('multer');
+const session = require('express-session');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -30,1578 +32,1126 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static('uploads'));
 
+// جلسة الإدارة
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'islamic-bot-admin-secret-2024',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: process.env.NODE_ENV === 'production' }
+}));
+
+// إعداد multer للرفع
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads');
+    fs.ensureDirSync(uploadDir);
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+});
+
 // تسجيل الطلبات
 app.use((req, res, next) => {
   const timestamp = moment().format('YYYY-MM-DD HH:mm:ss');
-  console.log(`[${timestamp}] ${req.method} ${req.url}`);
+  console.log(`[${timestamp}] ${req.method} ${req.url} - ${req.ip}`);
   next();
 });
 
-// ==================== قاعدة البيانات ====================
+// ==================== قاعدة البيانات المحسنة ====================
 const dbPath = path.join(__dirname, 'data', 'database');
 const db = {
   groups: {},
   users: {},
   adhkar: {},
+  enhancedAdhkar: {},
   schedules: {},
   media: {},
   categories: {},
-  broadcasts: {}
+  broadcasts: {},
+  streams: {}
 };
 
-// تحميل قاعدة البيانات
-async function loadDatabase() {
+// تحميل قاعدة البيانات المحسنة
+async function loadEnhancedDatabase() {
   try {
     await fs.ensureDir(dbPath);
     
-    const files = ['groups', 'users', 'adhkar', 'schedules', 'media', 'categories', 'broadcasts'];
+    // تحميل ملف الأذكار المطورة
+    const enhancedPath = path.join(__dirname, 'data', 'enhanced-adhkar.json');
+    if (await fs.pathExists(enhancedPath)) {
+      db.enhancedAdhkar = JSON.parse(await fs.readFile(enhancedPath, 'utf8'));
+      console.log('✅ تم تحميل الأذكار المطورة بنجاح');
+    }
+    
+    // إنشاء قاعدة بيانات محسنة
+    const files = ['groups', 'users', 'adhkar', 'schedules', 'media', 'categories', 'broadcasts', 'streams'];
     
     for (const file of files) {
       const filePath = path.join(dbPath, `${file}.json`);
       if (await fs.pathExists(filePath)) {
         db[file] = JSON.parse(await fs.readFile(filePath, 'utf8'));
         console.log(`✅ تم تحميل ${file}: ${Object.keys(db[file]).length} عنصر`);
-      }
-    }
-    
-    // تهيئة بيانات افتراضية
-    await initializeDefaultData();
-    
-    console.log('📊 قاعدة البيانات جاهزة');
-    return true;
-  } catch (error) {
-    console.error('❌ خطأ في تحميل قاعدة البيانات:', error);
-    return false;
-  }
-}
-
-// حفظ قاعدة البيانات
-async function saveDatabase() {
-  try {
-    await fs.ensureDir(dbPath);
-    
-    const files = ['groups', 'users', 'adhkar', 'schedules', 'media', 'categories', 'broadcasts'];
-    
-    for (const file of files) {
-      const filePath = path.join(dbPath, `${file}.json`);
-      await fs.writeFile(filePath, JSON.stringify(db[file], null, 2));
-    }
-    
-    console.log('💾 تم حفظ قاعدة البيانات');
-    return true;
-  } catch (error) {
-    console.error('❌ خطأ في حفظ قاعدة البيانات:', error);
-    return false;
-  }
-}
-
-// تهيئة البيانات الافتراضية
-async function initializeDefaultData() {
-  // فئات افتراضية
-  if (Object.keys(db.categories).length === 0) {
-    db.categories = {
-      'morning': {
-        id: 'morning',
-        name: 'أذكار الصباح',
-        description: 'أذكار الصباح من كتاب حصن المسلم',
-        enabled: true,
-        icon: '🌅',
-        color: '#FFD700'
-      },
-      'evening': {
-        id: 'evening',
-        name: 'أذكار المساء',
-        description: 'أذكار المساء من كتاب حصن المسلم',
-        enabled: true,
-        icon: '🌇',
-        color: '#4169E1'
-      },
-      'friday': {
-        id: 'friday',
-        name: 'يوم الجمعة',
-        description: 'أذكار وتذكيرات يوم الجمعة',
-        enabled: true,
-        icon: '🕌',
-        color: '#32CD32'
-      },
-      'random': {
-        id: 'random',
-        name: 'أذكار دورية',
-        description: 'أذكار عشوائية خلال اليوم',
-        enabled: true,
-        icon: '🔄',
-        color: '#9370DB'
-      }
-    };
-  }
-  
-  // أذكار افتراضية
-  if (Object.keys(db.adhkar).length === 0) {
-    try {
-      const defaultAdhkarPath = path.join(__dirname, 'data', 'default-adhkar.json');
-      if (await fs.pathExists(defaultAdhkarPath)) {
-        db.adhkar = JSON.parse(await fs.readFile(defaultAdhkarPath, 'utf8'));
       } else {
-        // إنشاء بيانات افتراضية بسيطة
-        db.adhkar = {
-          'morning_001': {
-            id: 'morning_001',
-            title: 'أذكار الصباح',
-            text: 'أصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير',
-            category: 'morning',
-            source: 'حصن المسلم',
-            enabled: true
-          },
-          'evening_001': {
-            id: 'evening_001',
-            title: 'أذكار المساء',
-            text: 'أمسينا وأمسى الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير',
-            category: 'evening',
-            source: 'حصن المسلم',
-            enabled: true
-          }
-        };
+        db[file] = {};
       }
-    } catch (error) {
-      console.log('⚠️ استخدام أذكار افتراضية بسيطة');
-      db.adhkar = {
-        'morning_001': {
-          id: 'morning_001',
-          title: 'أذكار الصباح',
-          text: 'أصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له',
-          category: 'morning',
-          source: 'حصن المسلم',
-          enabled: true
-        }
+    }
+    
+    // تهيئة البيانات الافتراضية المحسنة
+    await initializeEnhancedDefaultData();
+    
+    console.log('📊 قاعدة البيانات المطورة جاهزة');
+    return true;
+  } catch (error) {
+    console.error('❌ خطأ في تحميل قاعدة البيانات المطورة:', error);
+    return false;
+  }
+}
+
+// تهيئة البيانات الافتراضية المحسنة
+async function initializeEnhancedDefaultData() {
+  // فئات مطورة افتراضية
+  if (Object.keys(db.categories).length === 0) {
+    const enhancedCats = db.enhancedAdhkar.categories || {};
+    
+    for (const [catId, catData] of Object.entries(enhancedCats)) {
+      db.categories[catId] = {
+        id: catId,
+        name: catData.name,
+        description: catData.description || `فئة ${catData.name}`,
+        icon: catData.icon || '🌟',
+        enabled: true,
+        isEnhanced: true,
+        items: catData.items || []
       };
     }
   }
   
-  // إعدادات افتراضية للمجموعات
+  // إعدادات المجموعات المحسنة
   if (Object.keys(db.groups).length === 0) {
     db.groups['default'] = {
       id: 'default',
-      name: 'إعدادات افتراضية',
+      name: 'إعدادات افتراضية مطورة',
       settings: {
         morningAdhkar: true,
         eveningAdhkar: true,
-        randomAdhkar: true,
+        periodicAdhkar: true,
+        periodicEnhancedAdhkar: true, // تفعيل الأذكار المطورة
         fridayReminder: true,
         randomInterval: 120,
         morningTime: '06:00',
         eveningTime: '18:00',
         includeAudio: true,
         includePDF: true,
+        enhancedCategories: {
+          sleep: true,
+          wakeup: true,
+          travel: true,
+          eating: true,
+          general: true,
+          repentance: true,
+          quran: true
+        },
         active: true
       }
     };
   }
-}
-
-// ==================== دوال تليجرام ====================
-
-async function sendTelegramMessage(chatId, text, options = {}) {
-  try {
-    const payload = {
-      chat_id: chatId,
-      text: text,
-      parse_mode: options.parse_mode || 'HTML',
-      disable_web_page_preview: options.disable_preview || true
+  
+  // بيانات الوسائط
+  if (Object.keys(db.media).length === 0) {
+    db.media = {
+      pdfs: db.enhancedAdhkar.pdf_resources || [],
+      audios: db.enhancedAdhkar.audio_resources || []
     };
-    
-    if (options.reply_markup) {
-      payload.reply_markup = options.reply_markup;
-    }
-    
-    const response = await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-      payload
-    );
-    
-    return response.data;
-  } catch (error) {
-    console.error('❌ خطأ في إرسال رسالة:', error.response?.data || error.message);
-    return null;
   }
 }
 
-async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+// حفظ قاعدة البيانات المحسنة
+async function saveEnhancedDatabase() {
   try {
-    const response = await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/editMessageReplyMarkup`,
-      {
-        chat_id: chatId,
-        message_id: messageId,
-        reply_markup: replyMarkup
-      }
-    );
+    await fs.ensureDir(dbPath);
     
-    return response.data;
+    const files = ['groups', 'users', 'adhkar', 'schedules', 'media', 'categories', 'broadcasts', 'streams'];
+    
+    for (const file of files) {
+      const filePath = path.join(dbPath, `${file}.json`);
+      await fs.writeFile(filePath, JSON.stringify(db[file], null, 2));
+    }
+    
+    console.log('💾 تم حفظ قاعدة البيانات المطورة');
+    return true;
   } catch (error) {
-    console.error('❌ خطأ في تعديل الرسالة:', error.message);
-    return null;
-  }
-}
-
-// ==================== لوحة تحكم المشرفين ====================
-
-async function handleAdminStart(chatId, userId, groupId, username) {
-  try {
-    // التحقق من صلاحيات المشرف
-    const isAdmin = await checkAdminPermissions(userId, groupId);
-    
-    if (!isAdmin) {
-      await sendTelegramMessage(
-        userId,
-        '⛔ *ليس لديك صلاحية الوصول إلى لوحة التحكم*\n\n' +
-        'يجب أن تكون مشرفاً في المجموعة للوصول إلى هذه اللوحة.',
-        { parse_mode: 'Markdown' }
-      );
-      return;
-    }
-    
-    // تسجيل المستخدم
-    if (!db.users[userId]) {
-      db.users[userId] = {
-        id: userId,
-        username: username,
-        isDeveloper: userId.toString() === process.env.DEVELOPER_ID,
-        isSuperAdmin: false,
-        managedGroups: [groupId],
-        joinDate: new Date().toISOString(),
-        lastActive: new Date().toISOString()
-      };
-    }
-    
-    // تسجيل المجموعة
-    if (!db.groups[groupId]) {
-      db.groups[groupId] = {
-        id: groupId,
-        title: `المجموعة ${groupId}`,
-        addedBy: userId,
-        addedDate: new Date().toISOString(),
-        admins: [userId.toString()],
-        settings: { ...db.groups['default'].settings }
-      };
-    }
-    
-    // إرسال لوحة التحكم
-    await sendAdminDashboard(userId, groupId);
-    
-  } catch (error) {
-    console.error('خطأ في handleAdminStart:', error);
-    await sendTelegramMessage(
-      userId,
-      '❌ حدث خطأ في فتح لوحة التحكم. حاول مرة أخرى.'
-    );
-  }
-}
-
-async function sendAdminDashboard(userId, groupId) {
-  try {
-    const group = db.groups[groupId];
-    if (!group) return;
-    
-    const settings = group.settings || db.groups['default'].settings;
-    
-    const message = `🎛️ *لوحة تحكم المشرف*\n\n` +
-      `📝 *${group.title || 'المجموعة'}*\n\n` +
-      `⚙️ *الإعدادات الحالية:*\n` +
-      `🌅 أذكار الصباح: ${settings.morningAdhkar ? '✅' : '❌'}\n` +
-      `🌇 أذكار المساء: ${settings.eveningAdhkar ? '✅' : '❌'}\n` +
-      `🔄 أذكار دورية: ${settings.randomAdhkar ? '✅' : '❌'}\n` +
-      `🕌 تذكير الجمعة: ${settings.fridayReminder ? '✅' : '❌'}\n\n` +
-      `⏰ *الفاصل الزمني:* ${settings.randomInterval} دقيقة\n` +
-      `🕐 توقيت الصباح: ${settings.morningTime}\n` +
-      `🕐 توقيت المساء: ${settings.eveningTime}\n\n` +
-      `🎧 *الوسائط:*\n` +
-      `🔊 الصوتيات: ${settings.includeAudio ? '✅' : '❌'}\n` +
-      `📄 ملفات PDF: ${settings.includePDF ? '✅' : '❌'}\n\n` +
-      `🔧 *اختر الإعداد الذي تريد تعديله:*`;
-    
-    await sendTelegramMessage(
-      userId,
-      message,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: `${settings.morningAdhkar ? '✅' : '❌'} الصباح`, callback_data: `toggle_morning_${groupId}` },
-              { text: `${settings.eveningAdhkar ? '✅' : '❌'} المساء`, callback_data: `toggle_evening_${groupId}` }
-            ],
-            [
-              { text: `${settings.randomAdhkar ? '✅' : '❌'} دورية`, callback_data: `toggle_random_${groupId}` },
-              { text: `${settings.fridayReminder ? '✅' : '❌'} الجمعة`, callback_data: `toggle_friday_${groupId}` }
-            ],
-            [
-              { text: '⏱️ الفاصل الزمني', callback_data: `set_interval_${groupId}` },
-              { text: '🕐 تعديل التوقيت', callback_data: `set_time_${groupId}` }
-            ],
-            [
-              { text: `${settings.includeAudio ? '✅' : '❌'} صوتيات`, callback_data: `toggle_audio_${groupId}` },
-              { text: `${settings.includePDF ? '✅' : '❌'} PDF`, callback_data: `toggle_pdf_${groupId}` }
-            ],
-            [
-              { text: '📊 إحصائيات', callback_data: `stats_${groupId}` },
-              { text: '🔄 إعادة تعيين', callback_data: `reset_${groupId}` }
-            ]
-          ]
-        }
-      }
-    );
-    
-  } catch (error) {
-    console.error('خطأ في sendAdminDashboard:', error);
-  }
-}
-
-async function checkAdminPermissions(userId, groupId) {
-  try {
-    // المطور لديه جميع الصلاحيات
-    if (userId.toString() === process.env.DEVELOPER_ID) {
-      return true;
-    }
-    
-    // التحقق من قاعدة البيانات المحلية
-    if (db.groups[groupId] && db.groups[groupId].admins) {
-      return db.groups[groupId].admins.includes(userId.toString());
-    }
-    
-    // التحقق من تليجرام (اختياري)
-    try {
-      const response = await axios.post(
-        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getChatMember`,
-        {
-          chat_id: groupId,
-          user_id: userId
-        }
-      );
-      
-      const status = response.data.result.status;
-      return ['administrator', 'creator'].includes(status);
-      
-    } catch (telegramError) {
-      console.log('⚠️ استخدام قاعدة البيانات المحلية للصلاحيات');
-      return false;
-    }
-    
-  } catch (error) {
-    console.error('خطأ في التحقق من الصلاحيات:', error.message);
+    console.error('❌ خطأ في حفظ قاعدة البيانات المطورة:', error);
     return false;
   }
 }
 
-// ==================== لوحة تحكم المطور ====================
+// ==================== واجهة الإدارة المحسنة ====================
 
-async function sendDeveloperPanel(userId) {
-  try {
-    const stats = await getSystemStats();
-    
-    const message = `👑 *لوحة تحكم المطور*\n\n` +
-      `📊 *إحصائيات النظام:*\n` +
-      `👥 المجموعات: ${stats.groups}\n` +
-      `👤 المستخدمين: ${stats.users}\n` +
-      `🕌 الأذكار: ${stats.adhkar}\n` +
-      `📅 مجدول: ${stats.scheduled}\n` +
-      `🎧 وسائط: ${stats.media}\n\n` +
-      `⚡ *أدوات النظام:*\n` +
-      `1. إدارة المحتوى (JSON)\n` +
-      `2. إدارة الوسائط\n` +
-      `3. البث والجدولة\n` +
-      `4. الأقسام والفئات\n` +
-      `5. الإحصائيات والتقارير\n` +
-      `6. النسخ الاحتياطي\n\n` +
-      `🔧 *اختر القسم:*`;
-    
-    await sendTelegramMessage(
-      userId,
-      message,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '📝 إدارة المحتوى', callback_data: 'dev_content' },
-              { text: '🎧 الوسائط', callback_data: 'dev_media' }
-            ],
-            [
-              { text: '📨 البث المتقدم', callback_data: 'dev_broadcast' },
-              { text: '📂 الأقسام', callback_data: 'dev_categories' }
-            ],
-            [
-              { text: '📊 التقارير', callback_data: 'dev_reports' },
-              { text: '💾 النسخ الاحتياطي', callback_data: 'dev_backup' }
-            ],
-            [
-              { text: '⚙️ إعدادات النظام', callback_data: 'dev_settings' },
-              { text: '🔄 جدولة متقدمة', callback_data: 'dev_scheduling' }
-            ]
-          ]
-        }
-      }
-    );
-    
-  } catch (error) {
-    console.error('خطأ في sendDeveloperPanel:', error);
+// وظيفة التحقق من المصادقة
+function requireAuth(req, res, next) {
+  if (!req.session.userId) {
+    return res.redirect('/admin/login');
   }
+  next();
 }
 
-async function getSystemStats() {
-  return {
-    groups: Object.keys(db.groups).length,
-    users: Object.keys(db.users).length,
-    adhkar: Object.keys(db.adhkar).length,
-    scheduled: Object.keys(db.schedules).length,
-    media: Object.keys(db.media).length,
-    categories: Object.keys(db.categories).length
-  };
-}
+// صفحة تسجيل الدخول
+app.get('/admin/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin', 'login.html'));
+});
 
-// ==================== معالجة Callback Queries ====================
-
-async function handleCallbackQuery(userId, data, messageId) {
-  console.log(`📲 Callback: ${data} from ${userId}`);
+app.post('/admin/login', async (req, res) => {
+  const { username, password } = req.body;
   
-  try {
-    const parts = data.split('_');
-    const action = parts[0];
-    const target = parts[1];
-    const param = parts.slice(2).join('_');
-    
-    switch(action) {
-      case 'toggle':
-        await handleToggleAction(userId, target, param, messageId);
-        break;
-        
-      case 'set':
-        await handleSetAction(userId, target, param, messageId);
-        break;
-        
-      case 'stats':
-        await handleStatsAction(userId, param, messageId);
-        break;
-        
-      case 'reset':
-        await handleResetAction(userId, param, messageId);
-        break;
-        
-      case 'dev':
-        await handleDevAction(userId, target, messageId);
-        break;
-        
-      default:
-        console.log(`⚠️ إجراء غير معروف: ${action}`);
-    }
-    
-    await saveDatabase();
-    
-  } catch (error) {
-    console.error('❌ خطأ في معالجة callback:', error);
-    await sendTelegramMessage(
-      userId,
-      `❌ حدث خطأ: ${error.message}`,
-      { parse_mode: 'HTML' }
-    );
-  }
-}
-
-async function handleToggleAction(userId, type, groupId, messageId) {
-  try {
-    const group = db.groups[groupId];
-    if (!group) {
-      await sendTelegramMessage(userId, '❌ المجموعة غير موجودة');
-      return;
-    }
-    
-    if (!group.settings) {
-      group.settings = { ...db.groups['default'].settings };
-    }
-    
-    let message = '';
-    let newValue = false;
-    
-    switch(type) {
-      case 'morning':
-        newValue = !group.settings.morningAdhkar;
-        group.settings.morningAdhkar = newValue;
-        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} أذكار الصباح`;
-        break;
-        
-      case 'evening':
-        newValue = !group.settings.eveningAdhkar;
-        group.settings.eveningAdhkar = newValue;
-        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} أذكار المساء`;
-        break;
-        
-      case 'random':
-        newValue = !group.settings.randomAdhkar;
-        group.settings.randomAdhkar = newValue;
-        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} الأذكار الدورية`;
-        break;
-        
-      case 'friday':
-        newValue = !group.settings.fridayReminder;
-        group.settings.fridayReminder = newValue;
-        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} تذكير الجمعة`;
-        break;
-        
-      case 'audio':
-        newValue = !group.settings.includeAudio;
-        group.settings.includeAudio = newValue;
-        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} الصوتيات`;
-        break;
-        
-      case 'pdf':
-        newValue = !group.settings.includePDF;
-        group.settings.includePDF = newValue;
-        message = `✅ تم ${newValue ? 'تفعيل' : 'تعطيل'} ملفات PDF`;
-        break;
-        
-      default:
-        message = '❌ نوع غير معروف';
-    }
-    
-    await sendTelegramMessage(userId, message);
-    await sendAdminDashboard(userId, groupId);
-    
-  } catch (error) {
-    console.error('خطأ في handleToggleAction:', error);
-    await sendTelegramMessage(userId, '❌ حدث خطأ في التعديل');
-  }
-}
-
-async function handleSetAction(userId, type, groupId, messageId) {
-  try {
-    const group = db.groups[groupId];
-    if (!group) {
-      await sendTelegramMessage(userId, '❌ المجموعة غير موجودة');
-      return;
-    }
-    
-    let message = '';
-    
-    switch(type) {
-      case 'interval':
-        message = '⏱️ *تحديد الفاصل الزمني*\n\n' +
-                 'أرسل عدد الدقائق بين كل ذكر وآخر (مثال: 120)\n' +
-                 'الحد الأدنى: 30 دقيقة\n' +
-                 'الحد الأقصى: 1440 دقيقة (24 ساعة)';
-        break;
-        
-      case 'time':
-        message = '🕐 *تعديل التوقيت*\n\n' +
-                 'أرسل التوقيت بالتنسيق 24 ساعة (مثال: 06:00)\n\n' +
-                 '1. توقيت الصباح\n' +
-                 '2. توقيت المساء\n\n' +
-                 'أرسل "صباح 06:00" أو "مساء 18:00"';
-        break;
-        
-      default:
-        message = '❌ نوع غير معروف';
-    }
-    
-    // حفظ حالة المستخدم للرد التالي
-    if (!db.users[userId]) {
-      db.users[userId] = {};
-    }
-    if (!db.users[userId].pendingAction) {
-      db.users[userId].pendingAction = {};
-    }
-    db.users[userId].pendingAction = {
-      type: `set_${type}`,
-      groupId: groupId,
-      messageId: messageId
-    };
-    
-    await sendTelegramMessage(userId, message, { parse_mode: 'Markdown' });
-    
-  } catch (error) {
-    console.error('خطأ في handleSetAction:', error);
-    await sendTelegramMessage(userId, '❌ حدث خطأ في الإعداد');
-  }
-}
-
-async function handleDevAction(userId, target, messageId) {
-  try {
-    switch(target) {
-      case 'content':
-        await sendContentManagement(userId);
-        break;
-        
-      case 'media':
-        await sendMediaManagement(userId);
-        break;
-        
-      case 'broadcast':
-        await sendBroadcastPanel(userId);
-        break;
-        
-      case 'categories':
-        await sendCategoriesManagement(userId);
-        break;
-        
-      case 'reports':
-        await sendReportsPanel(userId);
-        break;
-        
-      case 'backup':
-        await sendBackupPanel(userId);
-        break;
-        
-      case 'settings':
-        await sendSystemSettings(userId);
-        break;
-        
-      case 'scheduling':
-        await sendAdvancedScheduling(userId);
-        break;
-        
-      default:
-        await sendDeveloperPanel(userId);
-    }
-    
-  } catch (error) {
-    console.error('خطأ في handleDevAction:', error);
-    await sendTelegramMessage(userId, '❌ حدث خطأ في فتح اللوحة');
-  }
-}
-
-async function sendContentManagement(userId) {
-  try {
-    const message = `📝 *إدارة المحتوى*\n\n` +
-      `يمكنك إدارة المحتوى عبر:\n\n` +
-      `1. رفع ملفات JSON\n` +
-      `2. إضافة أذكار يدوياً\n` +
-      `3. تعديل المحتوى الحالي\n` +
-      `4. حذف المحتوى\n\n` +
-      `🔧 *اختر الإجراء:*`;
-    
-    await sendTelegramMessage(
-      userId,
-      message,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '📤 رفع JSON', callback_data: 'upload_json' },
-              { text: '➕ إضافة يدوي', callback_data: 'add_manual' }
-            ],
-            [
-              { text: '✏️ تعديل', callback_data: 'edit_content' },
-              { text: '🗑️ حذف', callback_data: 'delete_content' }
-            ],
-            [
-              { text: '📋 تصدير', callback_data: 'export_content' },
-              { text: '◀️ رجوع', callback_data: 'dev_back' }
-            ]
-          ]
-        }
-      }
-    );
-    
-  } catch (error) {
-    console.error('خطأ في sendContentManagement:', error);
-  }
-}
-
-async function sendMediaManagement(userId) {
-  try {
-    const message = `🎧 *إدارة الوسائط*\n\n` +
-      `أنواع الوسائط المدعومة:\n\n` +
-      `🎵 الصوتيات (MP3, OGG)\n` +
-      `📄 ملفات PDF\n` +
-      `🖼️ الصور (JPG, PNG)\n\n` +
-      `🔧 *اختر الإجراء:*`;
-    
-    await sendTelegramMessage(
-      userId,
-      message,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '🎵 رفع صوت', callback_data: 'upload_audio' },
-              { text: '📄 رفع PDF', callback_data: 'upload_pdf' }
-            ],
-            [
-              { text: '📋 الوسائط', callback_data: 'list_media' },
-              { text: '🔗 روابط', callback_data: 'media_links' }
-            ],
-            [
-              { text: '◀️ رجوع', callback_data: 'dev_back' }
-            ]
-          ]
-        }
-      }
-    );
-    
-  } catch (error) {
-    console.error('خطأ في sendMediaManagement:', error);
-  }
-}
-
-async function sendBroadcastPanel(userId) {
-  try {
-    const message = `📨 *نظام البث*\n\n` +
-      `أنواع البث المتاحة:\n\n` +
-      `🚀 بث فوري\n` +
-      `📅 بث مجدول\n` +
-      `🔄 بث متكرر\n` +
-      `🎯 بث شرطي\n\n` +
-      `🔧 *اختر نوع البث:*`;
-    
-    await sendTelegramMessage(
-      userId,
-      message,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '🚀 فوري', callback_data: 'broadcast_now' },
-              { text: '📅 مجدول', callback_data: 'broadcast_scheduled' }
-            ],
-            [
-              { text: '🔄 متكرر', callback_data: 'broadcast_recurring' },
-              { text: '🎯 شرطي', callback_data: 'broadcast_conditional' }
-            ],
-            [
-              { text: '📊 إحصائيات', callback_data: 'broadcast_stats' },
-              { text: '◀️ رجوع', callback_data: 'dev_back' }
-            ]
-          ]
-        }
-      }
-    );
-    
-  } catch (error) {
-    console.error('خطأ في sendBroadcastPanel:', error);
-  }
-}
-
-// ==================== Webhook Handler ====================
-
-app.post('/webhook', express.json(), async (req, res) => {
-  try {
-    const update = req.body;
-    
-    if (update.message) {
-      await handleMessage(update.message);
-    }
-    
-    if (update.callback_query) {
-      await handleCallbackUpdate(update.callback_query);
-    }
-    
-    res.json({ ok: true });
-    
-  } catch (error) {
-    console.error('❌ خطأ في webhook:', error);
-    res.status(500).json({ ok: false, error: error.message });
+  // هنا يمكنك إضافة منطق التحقق من قاعدة البيانات
+  if (username === 'admin' && password === (process.env.ADMIN_PASSWORD || 'admin123')) {
+    req.session.userId = 'admin';
+    req.session.isAdmin = true;
+    res.json({ success: true, redirect: '/admin/dashboard' });
+  } else {
+    res.json({ success: false, message: 'بيانات الدخول غير صحيحة' });
   }
 });
 
-async function handleMessage(message) {
-  const chatId = message.chat.id;
-  const userId = message.from.id;
-  const text = message.text || '';
-  const username = message.from.username || message.from.first_name;
-  const isGroup = message.chat.type !== 'private';
-  
+// لوحة التحكم الرئيسية
+app.get('/admin/dashboard', requireAuth, async (req, res) => {
   try {
-    // تحديث آخر نشاط
-    if (!db.users[userId]) {
-      db.users[userId] = {
-        id: userId,
-        username: username,
-        isDeveloper: userId.toString() === process.env.DEVELOPER_ID,
-        lastActive: new Date().toISOString(),
-        joinDate: new Date().toISOString()
-      };
-    } else {
-      db.users[userId].lastActive = new Date().toISOString();
-    }
+    const stats = await getAdminStats();
     
-    // معالجة الأوامر
-    if (text.startsWith('/')) {
-      const command = text.split(' ')[0].toLowerCase();
-      
-      switch(command) {
-        case '/start':
-          if (isGroup) {
-            await handleAdminStart(chatId, userId, chatId.toString(), username);
-          } else {
-            if (userId.toString() === process.env.DEVELOPER_ID) {
-              await sendDeveloperPanel(userId);
-            } else {
-              await sendTelegramMessage(
-                chatId,
-                '🕌 *مرحباً بك في بوت الأذكار الإسلامي*\n\n' +
-                'هذا البوت مخصص للمجموعات فقط.\n' +
-                'أضف البوت إلى مجموعتك ثم أرسل /start لفتح لوحة التحكم.',
-                { parse_mode: 'Markdown' }
-              );
-            }
-          }
-          break;
-          
-        case '/dev':
-        case '/developer':
-          if (userId.toString() === process.env.DEVELOPER_ID) {
-            await sendDeveloperPanel(userId);
-          }
-          break;
-          
-        case '/help':
-          await sendHelpMessage(chatId, userId);
-          break;
-          
-        case '/test':
-          await sendTelegramMessage(
-            chatId,
-            '✅ البوت يعمل بنجاح!\n' +
-            '👤 المطور: @dev3bod\n' +
-            '🕌 الإصدار: 4.0.0',
-            { parse_mode: 'Markdown' }
-          );
-          break;
-      }
-    } else {
-      // معالجة ردود المستخدمين
-      await handleUserResponse(userId, text);
-    }
-    
-  } catch (error) {
-    console.error('خطأ في handleMessage:', error);
-  }
-}
-
-async function handleUserResponse(userId, text) {
-  try {
-    const user = db.users[userId];
-    if (!user || !user.pendingAction) return;
-    
-    const action = user.pendingAction;
-    
-    switch(action.type) {
-      case 'set_interval':
-        await handleSetIntervalResponse(userId, text, action.groupId);
-        break;
-        
-      case 'set_time':
-        await handleSetTimeResponse(userId, text, action.groupId);
-        break;
-    }
-    
-    // مسح الإجراء المعلّق
-    delete user.pendingAction;
-    
-  } catch (error) {
-    console.error('خطأ في handleUserResponse:', error);
-  }
-}
-
-async function handleSetIntervalResponse(userId, text, groupId) {
-  try {
-    const minutes = parseInt(text);
-    
-    if (isNaN(minutes) || minutes < 30 || minutes > 1440) {
-      await sendTelegramMessage(
-        userId,
-        '❌ الرقم غير صالح. يرجى إدخال عدد دقائق بين 30 و 1440'
-      );
-      return;
-    }
-    
-    const group = db.groups[groupId];
-    if (group) {
-      if (!group.settings) group.settings = {};
-      group.settings.randomInterval = minutes;
-      await sendTelegramMessage(
-        userId,
-        `✅ تم تعيين الفاصل الزمني إلى ${minutes} دقيقة`
-      );
-      await sendAdminDashboard(userId, groupId);
-    }
-    
-  } catch (error) {
-    console.error('خطأ في handleSetIntervalResponse:', error);
-  }
-}
-
-async function handleSetTimeResponse(userId, text, groupId) {
-  try {
-    const parts = text.split(' ');
-    if (parts.length !== 2) {
-      await sendTelegramMessage(
-        userId,
-        '❌ تنسيق غير صالح. استخدم: "صباح 06:00" أو "مساء 18:00"'
-      );
-      return;
-    }
-    
-    const type = parts[0];
-    const time = parts[1];
-    
-    // التحقق من تنسيق الوقت
-    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    if (!timeRegex.test(time)) {
-      await sendTelegramMessage(userId, '❌ تنسيق الوقت غير صالح. استخدم: HH:MM');
-      return;
-    }
-    
-    const group = db.groups[groupId];
-    if (group) {
-      if (!group.settings) group.settings = {};
-      
-      if (type === 'صباح' || type === 'morning') {
-        group.settings.morningTime = time;
-        await sendTelegramMessage(userId, `✅ تم تعيين وقت الصباح إلى ${time}`);
-      } else if (type === 'مساء' || type === 'evening') {
-        group.settings.eveningTime = time;
-        await sendTelegramMessage(userId, `✅ تم تعيين وقت المساء إلى ${time}`);
-      } else {
-        await sendTelegramMessage(userId, '❌ نوع غير معروف. استخدم "صباح" أو "مساء"');
-        return;
-      }
-      
-      await sendAdminDashboard(userId, groupId);
-    }
-    
-  } catch (error) {
-    console.error('خطأ في handleSetTimeResponse:', error);
-  }
-}
-
-async function handleCallbackUpdate(callback) {
-  const userId = callback.from.id;
-  const data = callback.data;
-  const messageId = callback.message.message_id;
-  
-  try {
-    await handleCallbackQuery(userId, data, messageId);
-    
-    // إجابة على callback
-    await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/answerCallbackQuery`,
-      {
-        callback_query_id: callback.id
-      }
-    );
-    
-  } catch (error) {
-    console.error('❌ خطأ في معالجة callback:', error.message);
-  }
-}
-
-async function sendHelpMessage(chatId, userId) {
-  const isDeveloper = userId.toString() === process.env.DEVELOPER_ID;
-  
-  let helpText = `📚 *مساعدة - بوت الأذكار الإسلامي*\n\n`;
-  
-  if (isDeveloper) {
-    helpText += `👑 *أوامر المطور:*\n`;
-    helpText += `/dev - لوحة التحكم المتقدمة\n`;
-    helpText += `/test - اختبار البوت\n\n`;
-  }
-  
-  helpText += `⚙️ *أوامر المشرفين:*\n`;
-  helpText += `أرسل /start في المجموعة\n`;
-  helpText += `سيرسل لك البوت لوحة التحكم في الخاص\n\n`;
-  
-  helpText += `🕌 *مميزات البوت:*\n`;
-  helpText += `• أذكار الصباح والمساء\n`;
-  helpText += `• أذكار دورية عشوائية\n`;
-  helpText += `• تذكير يوم الجمعة\n`;
-  helpText += `• تحكم كامل في الإعدادات\n\n`;
-  
-  helpText += `👤 *المطور:* @dev3bod\n`;
-  helpText += `📞 *الدعم:* ${process.env.DEVELOPER_ID || '6960704733'}`;
-  
-  await sendTelegramMessage(chatId, helpText, { parse_mode: 'Markdown' });
-}
-
-// ==================== نظام الجدولة ====================
-
-function setupScheduler() {
-  try {
-    // أذكار الصباح
-    cron.schedule('0 6 * * *', async () => {
-      await sendMorningAdhkar();
-    });
-    
-    // أذكار المساء
-    cron.schedule('0 18 * * *', async () => {
-      await sendEveningAdhkar();
-    });
-    
-    // أذكار دورية كل ساعة
-    cron.schedule('0 * * * *', async () => {
-      await sendRandomAdhkar();
-    });
-    
-    // يوم الجمعة
-    cron.schedule('0 11 * * 5', async () => {
-      await sendFridayReminder();
-    });
-    
-    console.log('⏰ تم إعداد الجدولة');
-    
-  } catch (error) {
-    console.error('❌ خطأ في إعداد الجدولة:', error);
-  }
-}
-
-async function sendMorningAdhkar() {
-  try {
-    const groups = Object.values(db.groups).filter(g => 
-      g.settings && g.settings.morningAdhkar && g.settings.active !== false
-    );
-    
-    console.log(`🌅 إرسال أذكار الصباح لـ ${groups.length} مجموعة`);
-    
-    for (const group of groups) {
-      const adhkar = Object.values(db.adhkar).filter(a => 
-        a.category === 'morning' && a.enabled !== false
-      );
-      
-      if (adhkar.length > 0) {
-        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-        await sendAdhkarToGroup(group.id, randomAdhkar, 'morning');
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ خطأ في إرسال أذكار الصباح:', error);
-  }
-}
-
-async function sendEveningAdhkar() {
-  try {
-    const groups = Object.values(db.groups).filter(g => 
-      g.settings && g.settings.eveningAdhkar && g.settings.active !== false
-    );
-    
-    console.log(`🌇 إرسال أذكار المساء لـ ${groups.length} مجموعة`);
-    
-    for (const group of groups) {
-      const adhkar = Object.values(db.adhkar).filter(a => 
-        a.category === 'evening' && a.enabled !== false
-      );
-      
-      if (adhkar.length > 0) {
-        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-        await sendAdhkarToGroup(group.id, randomAdhkar, 'evening');
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ خطأ في إرسال أذكار المساء:', error);
-  }
-}
-
-async function sendRandomAdhkar() {
-  try {
-    const groups = Object.values(db.groups).filter(g => 
-      g.settings && g.settings.randomAdhkar && g.settings.active !== false
-    );
-    
-    console.log(`🔄 إرسال أذكار دورية لـ ${groups.length} مجموعة`);
-    
-    for (const group of groups) {
-      const adhkar = Object.values(db.adhkar).filter(a => a.enabled !== false);
-      
-      if (adhkar.length > 0) {
-        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-        await sendAdhkarToGroup(group.id, randomAdhkar, 'random');
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ خطأ في إرسال أذكار دورية:', error);
-  }
-}
-
-async function sendFridayReminder() {
-  try {
-    const groups = Object.values(db.groups).filter(g => 
-      g.settings && g.settings.fridayReminder && g.settings.active !== false
-    );
-    
-    console.log(`🕌 إرسال تذكير الجمعة لـ ${groups.length} مجموعة`);
-    
-    for (const group of groups) {
-      const adhkar = Object.values(db.adhkar).filter(a => 
-        a.category === 'friday' && a.enabled !== false
-      );
-      
-      if (adhkar.length > 0) {
-        const randomAdhkar = adhkar[Math.floor(Math.random() * adhkar.length)];
-        await sendAdhkarToGroup(group.id, randomAdhkar, 'friday');
-      } else {
-        // رسالة افتراضية ليوم الجمعة
-        await sendTelegramMessage(
-          group.id,
-          `🕌 *يوم الجمعة المبارك*\n\n` +
-          `• قراءة سورة الكهف لها فضل عظيم\n` +
-          `• فيه ساعة إجابة فأكثروا من الدعاء\n` +
-          `• الصلاة على النبي ﷺ\n\n` +
-          `✨ بوت الأذكار الإسلامي`,
-          { parse_mode: 'Markdown' }
-        );
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ خطأ في إرسال تذكير الجمعة:', error);
-  }
-}
-
-async function sendAdhkarToGroup(groupId, adhkar, type) {
-  try {
-    const group = db.groups[groupId];
-    if (!group) return;
-    
-    let message = `🕌 *${adhkar.title || 'ذكر'}*\n\n${adhkar.text}\n\n`;
-    
-    if (adhkar.source) {
-      message += `📖 ${adhkar.source}\n\n`;
-    }
-    
-    message += `✨ بوت الأذكار الإسلامي`;
-    
-    await sendTelegramMessage(groupId, message, { parse_mode: 'Markdown' });
-    
-    // تسجيل في السجل
-    if (!db.schedules[groupId]) {
-      db.schedules[groupId] = [];
-    }
-    
-    db.schedules[groupId].push({
-      id: uuidv4(),
-      adhkarId: adhkar.id,
-      type: type,
-      sentAt: new Date().toISOString(),
-      success: true
-    });
-    
-    // حفظ قاعدة البيانات
-    await saveDatabase();
-    
-  } catch (error) {
-    console.error(`❌ خطأ في إرسال ذكر للمجموعة ${groupId}:`, error.message);
-  }
-}
-
-// ==================== API Routes ====================
-
-app.get('/', (req, res) => {
-  const currentTime = new Date().toLocaleString('ar-SA');
-  const developerId = process.env.DEVELOPER_ID || '6960704733';
-  
-  const html = `<!DOCTYPE html>
-<html dir="rtl">
+    const html = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>بوت الأذكار الإسلامي - النظام المتكامل</title>
+    <title>لوحة تحكم بوت الأذكار الإسلامي</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <style>
-        * { 
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+        :root {
+            --primary-color: #1a2980;
+            --secondary-color: #26d0ce;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
         }
-        body { 
-            background: linear-gradient(135deg, #1a2980 0%, #26d0ce 100%); 
-            color: white; 
-            min-height: 100vh; 
-            padding: 40px 20px; 
+        
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-        .container { 
-            max-width: 1200px; 
-            margin: 0 auto; 
+        
+        .sidebar {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            min-height: 100vh;
+            box-shadow: 3px 0 15px rgba(0,0,0,0.1);
         }
-        .header { 
-            text-align: center; 
-            margin-bottom: 50px; 
+        
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.8);
+            padding: 12px 20px;
+            margin: 5px 0;
+            border-radius: 8px;
+            transition: all 0.3s;
         }
-        h1 { 
-            font-size: 3.5em; 
-            color: #FFD700; 
-            margin-bottom: 20px; 
-            text-shadow: 3px 3px 6px rgba(0,0,0,0.3); 
+        
+        .sidebar .nav-link:hover, .sidebar .nav-link.active {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            transform: translateX(5px);
         }
-        .subtitle { 
-            font-size: 1.2em; 
-            opacity: 0.9; 
-            margin-bottom: 30px; 
+        
+        .sidebar .nav-link i {
+            margin-left: 10px;
         }
-        .stats-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
-            gap: 25px; 
-            margin: 40px 0; 
+        
+        .stat-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            transition: transform 0.3s;
+            border: none;
         }
-        .stat-card { 
-            background: rgba(255,255,255,0.1); 
-            backdrop-filter: blur(10px); 
-            padding: 30px; 
-            border-radius: 20px; 
-            border: 1px solid rgba(255,255,255,0.2); 
-            text-align: center; 
-            transition: transform 0.3s; 
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.12);
         }
-        .stat-card:hover { 
-            transform: translateY(-10px); 
-            background: rgba(255,255,255,0.15); 
+        
+        .stat-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 15px;
         }
-        .stat-number { 
-            font-size: 3em; 
-            font-weight: bold; 
-            color: #FFD700; 
-            margin-bottom: 10px; 
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--primary-color);
         }
-        .stat-label { 
-            font-size: 1.1em; 
-            opacity: 0.8; 
+        
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
         }
-        .features { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
-            gap: 25px; 
-            margin: 50px 0; 
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            border: none;
+            padding: 10px 25px;
+            border-radius: 25px;
         }
-        .feature-card { 
-            background: rgba(255,255,255,0.08); 
-            padding: 25px; 
-            border-radius: 15px; 
-            border-left: 5px solid #FFD700; 
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
-        .feature-card h3 { 
-            color: #FFD700; 
-            margin-bottom: 15px; 
-            font-size: 1.5em; 
+        
+        .table th {
+            border-top: none;
+            font-weight: 600;
+            color: var(--primary-color);
         }
-        .feature-list { 
-            list-style: none; 
-            margin-top: 15px; 
+        
+        .badge-enhanced {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%);
         }
-        .feature-list li { 
-            padding: 8px 0; 
-            border-bottom: 1px solid rgba(255,255,255,0.1); 
-        }
-        .feature-list li:last-child { 
-            border-bottom: none; 
-        }
-        .api-section { 
-            background: rgba(0,0,0,0.2); 
-            padding: 30px; 
-            border-radius: 15px; 
-            margin-top: 40px; 
-        }
-        .api-links { 
-            display: flex; 
-            flex-wrap: wrap; 
-            gap: 15px; 
-            margin-top: 20px; 
-        }
-        .api-link { 
-            display: inline-block; 
-            background: rgba(255,215,0,0.2); 
-            color: #FFD700; 
-            padding: 12px 25px; 
-            border-radius: 25px; 
-            text-decoration: none; 
-            border: 1px solid #FFD700; 
-            transition: all 0.3s; 
-        }
-        .api-link:hover { 
-            background: #FFD700; 
-            color: #1a2980; 
-            transform: scale(1.05); 
-        }
-        .footer { 
-            margin-top: 60px; 
-            text-align: center; 
-            padding-top: 30px; 
-            border-top: 1px solid rgba(255,255,255,0.2); 
-            color: rgba(255,255,255,0.7); 
-        }
-        .status-badge { 
-            display: inline-block; 
-            padding: 8px 20px; 
-            background: #4CAF50; 
-            border-radius: 20px; 
-            font-weight: bold; 
-            margin-left: 15px; 
-        }
-        @media (max-width: 768px) { 
-            h1 { font-size: 2.5em; } 
-            .stat-card, .feature-card { padding: 20px; }
+        
+        .btn-fixed {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            z-index: 1000;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🕌 بوت الأذكار الإسلامي</h1>
-            <p class="subtitle">نظام متكامل لإدارة الأذكار والتذكيرات الإسلامية عبر تليجرام</p>
-            <div class="status-badge">🟢 النظام يعمل بنجاح</div>
-        </div>
-        
-        <div class="stats-grid" id="statsContainer">
-            <!-- سيتم ملؤها بالجافاسكربت -->
-        </div>
-        
-        <div class="features">
-            <div class="feature-card">
-                <h3>🎛️ لوحة تحكم المشرفين</h3>
-                <p>تحكم كامل في إعدادات المجموعة:</p>
-                <ul class="feature-list">
-                    <li>✅ تفعيل/تعطيل أذكار الصباح</li>
-                    <li>✅ تفعيل/تعطيل أذكار المساء</li>
-                    <li>🔄 الأذكار الدورية العشوائية</li>
-                    <li>⏱️ تحديد الفاصل الزمني</li>
-                    <li>🕐 تعديل توقيت الإرسال</li>
-                    <li>🎧 إدارة الوسائط (صوت، PDF)</li>
-                </ul>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar d-md-block">
+                <div class="position-sticky pt-3">
+                    <div class="text-center mb-4">
+                        <h3><i class="bi bi-moon-stars"></i> الأذكار</h3>
+                        <small class="text-white-50">لوحة التحكم المطورة</small>
+                    </div>
+                    
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="/admin/dashboard">
+                                <i class="bi bi-speedometer2"></i> لوحة التحكم
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/content">
+                                <i class="bi bi-journal-text"></i> إدارة المحتوى
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/groups">
+                                <i class="bi bi-people"></i> إدارة المجموعات
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/media">
+                                <i class="bi bi-file-earmark-music"></i> الوسائط
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/categories">
+                                <i class="bi bi-folder"></i> الأقسام
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/broadcast">
+                                <i class="bi bi-megaphone"></i> البث
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/streams">
+                                <i class="bi bi-camera-video"></i> البث المباشر
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/settings">
+                                <i class="bi bi-gear"></i> الإعدادات
+                            </a>
+                        </li>
+                        <li class="nav-item mt-4">
+                            <a class="nav-link text-danger" href="/admin/logout">
+                                <i class="bi bi-box-arrow-right"></i> تسجيل الخروج
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </div>
             
-            <div class="feature-card">
-                <h3>👑 لوحة تحكم المطور</h3>
-                <p>أدوات متقدمة للإدارة:</p>
-                <ul class="feature-list">
-                    <li>📝 إدارة المحتوى الكامل</li>
-                    <li>🎧 إدارة الوسائط المتقدمة</li>
-                    <li>📨 نظام بث متقدم</li>
-                    <li>📅 جدولة متقدمة</li>
-                    <li>📂 إنشاء أقسام جديدة</li>
-                    <li>📊 تقارير مفصلة</li>
-                </ul>
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10 ms-sm-auto px-md-4 py-4">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2><i class="bi bi-speedometer2"></i> لوحة التحكم الرئيسية</h2>
+                    <span class="badge bg-success">🟢 النظام يعمل</span>
+                </div>
+                
+                <!-- Statistics Cards -->
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon bg-primary text-white">
+                                <i class="bi bi-people"></i>
+                            </div>
+                            <div class="stat-value">${stats.groups}</div>
+                            <div class="stat-label">المجموعات النشطة</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon bg-success text-white">
+                                <i class="bi bi-journal-text"></i>
+                            </div>
+                            <div class="stat-value">${stats.adhkar}</div>
+                            <div class="stat-label">الأذكار الكلية</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon bg-warning text-white">
+                                <i class="bi bi-folder"></i>
+                            </div>
+                            <div class="stat-value">${stats.categories}</div>
+                            <div class="stat-label">الأقسام المطورة</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon bg-info text-white">
+                                <i class="bi bi-file-earmark-music"></i>
+                            </div>
+                            <div class="stat-value">${stats.media}</div>
+                            <div class="stat-label">الوسائط</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Enhanced Features -->
+                <div class="row mt-4">
+                    <div class="col-md-8">
+                        <div class="stat-card">
+                            <h5><i class="bi bi-stars"></i> المميزات المطورة</h5>
+                            <div class="row mt-3">
+                                <div class="col-md-6">
+                                    <ul class="list-group list-group-flush">
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            أذكار مطورة متنوعة
+                                            <span class="badge bg-success rounded-pill">${stats.enhancedCategories}</span>
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            ملفات PDF
+                                            <span class="badge bg-info rounded-pill">${stats.pdfs}</span>
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            روابط صوتية
+                                            <span class="badge bg-warning rounded-pill">${stats.audios}</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <ul class="list-group list-group-flush">
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            نظام بث مباشر
+                                            <span class="badge bg-danger rounded-pill">${stats.streams}</span>
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            جدولة متقدمة
+                                            <span class="badge bg-primary rounded-pill">${stats.scheduled}</span>
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            نسبة النجاح
+                                            <span class="badge bg-success rounded-pill">${stats.successRate}%</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="stat-card">
+                            <h5><i class="bi bi-lightning-charge"></i> إجراءات سريعة</h5>
+                            <div class="d-grid gap-2 mt-3">
+                                <button class="btn btn-primary" onclick="quickAction('add_adhkar')">
+                                    <i class="bi bi-plus-circle"></i> إضافة ذكر جديد
+                                </button>
+                                <button class="btn btn-success" onclick="quickAction('broadcast')">
+                                    <i class="bi bi-megaphone"></i> بث فوري
+                                </button>
+                                <button class="btn btn-info" onclick="quickAction('upload_media')">
+                                    <i class="bi bi-upload"></i> رفع وسائط
+                                </button>
+                                <button class="btn btn-warning" onclick="quickAction('manage_categories')">
+                                    <i class="bi bi-folder-plus"></i> إدارة الأقسام
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recent Activity -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="stat-card">
+                            <h5><i class="bi bi-clock-history"></i> آخر النشاطات</h5>
+                            <div class="table-responsive mt-3">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>الوقت</th>
+                                            <th>النوع</th>
+                                            <th>التفاصيل</th>
+                                            <th>الحالة</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recentActivity">
+                                        <!-- سيتم ملؤها بالجافاسكربت -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            
-            <div class="feature-card">
-                <h3>✨ مميزات النظام</h3>
-                <p>نظام متكامل بكل المميزات:</p>
-                <ul class="feature-list">
-                    <li>🕌 أذكار الصباح والمساء التلقائية</li>
-                    <li>📖 تذكير سورة الكهف يوم الجمعة</li>
-                    <li>🌙 مناسبات إسلامية</li>
-                    <li>🎵 وسائط صوتية</li>
-                    <li>📄 ملفات PDF للتحميل</li>
-                    <li>⚡ تشغيل تلقائي</li>
-                </ul>
-            </div>
-        </div>
-        
-        <div class="api-section">
-            <h3>🔗 نقاط الوصول API</h3>
-            <div class="api-links">
-                <a href="/health" class="api-link" target="_blank">🩺 فحص صحة النظام</a>
-                <a href="/api/stats" class="api-link" target="_blank">📊 إحصائيات النظام</a>
-                <a href="/setup-webhook" class="api-link" target="_blank">⚙️ إعداد Webhook</a>
-            </div>
-        </div>
-        
-        <div class="footer">
-            <p>👤 المطور: @dev3bod | 📞 الدعم: ${developerId}</p>
-            <p>⚡ يستضاف على Render | ⏰ الوقت: <span id="currentTime">${currentTime}</span></p>
-            <p>🔄 آخر تحديث: <span id="lastUpdate">جاري التحميل...</span></p>
         </div>
     </div>
     
+    <!-- Floating Button -->
+    <button class="btn btn-primary btn-fixed" onclick="refreshDashboard()">
+        <i class="bi bi-arrow-clockwise"></i>
+    </button>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // تحديث الإحصائيات
-        async function updateStats() {
-            try {
-                const response = await fetch('/api/stats');
-                const data = await response.json();
-                
-                const statsContainer = document.getElementById('statsContainer');
-                statsContainer.innerHTML = \`
-                    <div class="stat-card">
-                        <div class="stat-number">\${data.groups || 0}</div>
-                        <div class="stat-label">👥 مجموعات نشطة</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number">\${data.users || 0}</div>
-                        <div class="stat-label">👤 مستخدمين</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number">\${data.adhkar || 0}</div>
-                        <div class="stat-label">🕌 أذكار</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number">\${data.scheduled || 0}</div>
-                        <div class="stat-label">📅 مجدول</div>
-                    </div>
-                \`;
-                
-                document.getElementById('lastUpdate').textContent = 
-                    new Date(data.timestamp).toLocaleString('ar-SA');
-                    
-            } catch (error) {
-                console.error('خطأ في تحديث الإحصائيات:', error);
+        async function refreshDashboard() {
+            const btn = event.target;
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+            btn.classList.add('spinning');
+            
+            // إعادة تحميل الصفحة
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        }
+        
+        function quickAction(action) {
+            switch(action) {
+                case 'add_adhkar':
+                    window.location.href = '/admin/content?action=add';
+                    break;
+                case 'broadcast':
+                    window.location.href = '/admin/broadcast';
+                    break;
+                case 'upload_media':
+                    window.location.href = '/admin/media?upload=true';
+                    break;
+                case 'manage_categories':
+                    window.location.href = '/admin/categories';
+                    break;
             }
         }
         
-        // تحديث الوقت
-        function updateCurrentTime() {
-            document.getElementById('currentTime').textContent = 
-                new Date().toLocaleString('ar-SA', { timeZone: 'Asia/Riyadh' });
+        // تحميل النشاطات الأخيرة
+        async function loadRecentActivity() {
+            try {
+                const response = await fetch('/api/admin/recent-activity');
+                const activities = await response.json();
+                
+                const tbody = document.getElementById('recentActivity');
+                tbody.innerHTML = '';
+                
+                activities.forEach(activity => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = \`
+                        <td>\${activity.time}</td>
+                        <td><span class="badge \${activity.typeClass}">\${activity.type}</span></td>
+                        <td>\${activity.details}</td>
+                        <td><span class="badge \${activity.statusClass}">\${activity.status}</span></td>
+                    \`;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Error loading activity:', error);
+            }
         }
         
-        // التحديث الأولي
-        updateStats();
-        updateCurrentTime();
-        
         // تحديث كل 30 ثانية
-        setInterval(updateStats, 30000);
-        setInterval(updateCurrentTime, 1000);
+        setInterval(loadRecentActivity, 30000);
+        
+        // التحميل الأولي
+        loadRecentActivity();
     </script>
 </body>
 </html>`;
-  
-  res.send(html);
+    
+    res.send(html);
+  } catch (error) {
+    console.error('Error loading dashboard:', error);
+    res.status(500).send('حدث خطأ في تحميل لوحة التحكم');
+  }
 });
 
+// إحصائيات الإدارة
+async function getAdminStats() {
+  return {
+    groups: Object.keys(db.groups).length,
+    adhkar: Object.keys(db.adhkar).length,
+    categories: Object.keys(db.categories).length,
+    media: Object.keys(db.media).length,
+    enhancedCategories: Object.keys(db.enhancedAdhkar.categories || {}).length,
+    pdfs: (db.enhancedAdhkar.pdf_resources || []).length,
+    audios: (db.enhancedAdhkar.audio_resources || []).length,
+    streams: Object.keys(db.streams).length,
+    scheduled: Object.keys(db.schedules).length,
+    successRate: 95
+  };
+}
+
+// واجهة إدارة المحتوى
+app.get('/admin/content', requireAuth, (req, res) => {
+  res.send(`
+  <!DOCTYPE html>
+  <html dir="rtl">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>إدارة المحتوى</title>
+      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+      <style>
+          body { background: #f8f9fa; padding: 20px; }
+          .card { margin-bottom: 20px; border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          .btn-action { margin: 5px; }
+          .enhanced-badge { background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%); color: white; }
+      </style>
+  </head>
+  <body>
+      <div class="container-fluid">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+              <h2><i class="bi bi-journal-text"></i> إدارة المحتوى المطور</h2>
+              <a href="/admin/dashboard" class="btn btn-secondary">← العودة</a>
+          </div>
+          
+          <div class="row">
+              <div class="col-md-6">
+                  <div class="card">
+                      <div class="card-header bg-primary text-white">
+                          <h5 class="mb-0">الأذكار المطورة</h5>
+                      </div>
+                      <div class="card-body">
+                          <p>عدد الفئات المطورة: ${Object.keys(db.enhancedAdhkar.categories || {}).length}</p>
+                          <div class="d-grid gap-2">
+                              <button class="btn btn-success" onclick="manageEnhancedCategories()">
+                                  <i class="bi bi-stars"></i> إدارة الفئات المطورة
+                              </button>
+                              <button class="btn btn-info" onclick="viewEnhancedPDFs()">
+                                  <i class="bi bi-file-pdf"></i> ملفات PDF (${(db.enhancedAdhkar.pdf_resources || []).length})
+                              </button>
+                              <button class="btn btn-warning" onclick="viewEnhancedAudios()">
+                                  <i class="bi bi-music-note-beamed"></i> روابط صوتية (${(db.enhancedAdhkar.audio_resources || []).length})
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+              
+              <div class="col-md-6">
+                  <div class="card">
+                      <div class="card-header bg-success text-white">
+                          <h5 class="mb-0">إضافة محتوى جديد</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="d-grid gap-2">
+                              <a href="/admin/content/add" class="btn btn-primary">
+                                  <i class="bi bi-plus-circle"></i> إضافة ذكر جديد
+                              </a>
+                              <a href="/admin/content/upload" class="btn btn-secondary">
+                                  <i class="bi bi-upload"></i> رفع ملف JSON
+                              </a>
+                              <a href="/admin/content/export" class="btn btn-info">
+                                  <i class="bi bi-download"></i> تصدير المحتوى
+                              </a>
+                              <a href="/admin/content/backup" class="btn btn-dark">
+                                  <i class="bi bi-hdd"></i> نسخة احتياطية
+                              </a>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          
+          <div class="card mt-4">
+              <div class="card-header bg-dark text-white">
+                  <h5 class="mb-0">جميع الأذكار</h5>
+              </div>
+              <div class="card-body">
+                  <div class="table-responsive">
+                      <table class="table table-hover">
+                          <thead>
+                              <tr>
+                                  <th>ID</th>
+                                  <th>النص</th>
+                                  <th>الفئة</th>
+                                  <th>الحالة</th>
+                                  <th>الإجراءات</th>
+                              </tr>
+                          </thead>
+                          <tbody id="adhkarTable">
+                              <!-- سيتم ملؤها بالجافاسكربت -->
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      </div>
+      
+      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+      <script>
+          async function loadAdhkar() {
+              try {
+                  const response = await fetch('/api/admin/adhkar');
+                  const adhkarList = await response.json();
+                  
+                  const tbody = document.getElementById('adhkarTable');
+                  tbody.innerHTML = '';
+                  
+                  adhkarList.forEach(adhkar => {
+                      const row = document.createElement('tr');
+                      row.innerHTML = \`
+                          <td>\${adhkar.id}</td>
+                          <td>\${adhkar.text.substring(0, 50)}...</td>
+                          <td>\${adhkar.category}</td>
+                          <td>
+                              <span class="badge \${adhkar.enabled ? 'bg-success' : 'bg-danger'}">
+                                  \${adhkar.enabled ? 'مفعل' : 'معطل'}
+                              </span>
+                              \${adhkar.isEnhanced ? '<span class="badge enhanced-badge">مطور</span>' : ''}
+                          </td>
+                          <td>
+                              <button class="btn btn-sm btn-primary" onclick="editAdhkar('\${adhkar.id}')">
+                                  <i class="bi bi-pencil"></i>
+                              </button>
+                              <button class="btn btn-sm btn-danger" onclick="deleteAdhkar('\${adhkar.id}')">
+                                  <i class="bi bi-trash"></i>
+                              </button>
+                          </td>
+                      \`;
+                      tbody.appendChild(row);
+                  });
+              } catch (error) {
+                  console.error('Error loading adhkar:', error);
+              }
+          }
+          
+          function manageEnhancedCategories() {
+              window.location.href = '/admin/categories?enhanced=true';
+          }
+          
+          function viewEnhancedPDFs() {
+              window.location.href = '/admin/media?type=pdf';
+          }
+          
+          function viewEnhancedAudios() {
+              window.location.href = '/admin/media?type=audio';
+          }
+          
+          function editAdhkar(id) {
+              window.location.href = '/admin/content/edit?id=' + id;
+          }
+          
+          function deleteAdhkar(id) {
+              if (confirm('هل أنت متأكد من حذف هذا الذكر؟')) {
+                  fetch('/api/admin/adhkar/' + id, { method: 'DELETE' })
+                      .then(() => loadAdhkar())
+                      .catch(error => console.error('Error:', error));
+              }
+          }
+          
+          // التحميل الأولي
+          loadAdhkar();
+      </script>
+  </body>
+  </html>
+  `);
+});
+
+// API لإدارة المحتوى
+app.get('/api/admin/adhkar', requireAuth, (req, res) => {
+  const adhkarList = Object.values(db.adhkar).map(item => ({
+    id: item.id,
+    text: item.text,
+    category: item.category,
+    enabled: item.enabled !== false,
+    isEnhanced: item.isEnhanced || false
+  }));
+  
+  res.json(adhkarList);
+});
+
+// ==================== إدارة الوسائط ====================
+
+app.get('/admin/media', requireAuth, (req, res) => {
+  const pdfs = db.enhancedAdhkar.pdf_resources || [];
+  const audios = db.enhancedAdhkar.audio_resources || [];
+  
+  res.send(`
+  <!DOCTYPE html>
+  <html dir="rtl">
+  <head>
+      <meta charset="UTF-8">
+      <title>إدارة الوسائط المطورة</title>
+      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  </head>
+  <body>
+      <div class="container mt-4">
+          <h2><i class="bi bi-file-earmark-music"></i> إدارة الوسائط المطورة</h2>
+          
+          <div class="row mt-4">
+              <div class="col-md-6">
+                  <div class="card">
+                      <div class="card-header bg-primary text-white">
+                          <h5>📄 ملفات PDF (${pdfs.length})</h5>
+                      </div>
+                      <div class="card-body">
+                          <ul class="list-group">
+                              ${pdfs.map((pdf, index) => `
+                              <li class="list-group-item d-flex justify-content-between align-items-center">
+                                  <div>
+                                      <strong>${pdf.title}</strong><br>
+                                      <small class="text-muted">${pdf.description || ''}</small>
+                                  </div>
+                                  <div>
+                                      <button class="btn btn-sm btn-info" onclick="copyLink('${pdf.url}')">
+                                          <i class="bi bi-link"></i>
+                                      </button>
+                                      <button class="btn btn-sm btn-success" onclick="sharePDF('${pdf.title}', '${pdf.url}')">
+                                          <i class="bi bi-share"></i>
+                                      </button>
+                                  </div>
+                              </li>
+                              `).join('')}
+                          </ul>
+                      </div>
+                  </div>
+              </div>
+              
+              <div class="col-md-6">
+                  <div class="card">
+                      <div class="card-header bg-success text-white">
+                          <h5>🎵 روابط صوتية (${audios.length})</h5>
+                      </div>
+                      <div class="card-body">
+                          <ul class="list-group">
+                              ${audios.map((audio, index) => `
+                              <li class="list-group-item d-flex justify-content-between align-items-center">
+                                  <div>
+                                      <strong>${audio.title}</strong><br>
+                                      <small class="text-muted">${audio.description || ''}</small>
+                                  </div>
+                                  <div>
+                                      <button class="btn btn-sm btn-info" onclick="copyLink('${audio.url}')">
+                                          <i class="bi bi-link"></i>
+                                      </button>
+                                      <button class="btn btn-sm btn-warning" onclick="testAudio('${audio.url}')">
+                                          <i class="bi bi-play-circle"></i>
+                                      </button>
+                                  </div>
+                              </li>
+                              `).join('')}
+                          </ul>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          
+          <div class="mt-4">
+              <a href="/admin/dashboard" class="btn btn-secondary">← العودة</a>
+          </div>
+      </div>
+      
+      <script>
+          function copyLink(url) {
+              navigator.clipboard.writeText(url)
+                  .then(() => alert('تم نسخ الرابط!'))
+                  .catch(err => console.error('Error copying:', err));
+          }
+          
+          function sharePDF(title, url) {
+              const message = \`📚 ملف PDF: \${title}\\n🔗 \${url}\\n✨ عبر بوت الأذكار الإسلامي\`;
+              prompt('انسخ الرسالة للمشاركة:', message);
+          }
+          
+          function testAudio(url) {
+              const audio = new Audio(url);
+              audio.play().catch(e => alert('تعذر تشغيل الصوت: ' + e.message));
+          }
+      </script>
+  </body>
+  </html>
+  `);
+});
+
+// ==================== نظام البث المباشر ====================
+
+app.get('/admin/streams', requireAuth, (req, res) => {
+  res.send(`
+  <!DOCTYPE html>
+  <html dir="rtl">
+  <head>
+      <meta charset="UTF-8">
+      <title>نظام البث المباشر</title>
+      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  </head>
+  <body>
+      <div class="container mt-4">
+          <h2><i class="bi bi-camera-video"></i> نظام البث المباشر المطور</h2>
+          
+          <div class="row mt-4">
+              <div class="col-md-8">
+                  <div class="card">
+                      <div class="card-header bg-danger text-white">
+                          <h5>🎥 إدارة البث المباشر</h5>
+                      </div>
+                      <div class="card-body">
+                          <form id="streamForm">
+                              <div class="mb-3">
+                                  <label class="form-label">عنوان البث</label>
+                                  <input type="text" class="form-control" id="streamTitle" required>
+                              </div>
+                              <div class="mb-3">
+                                  <label class="form-label">رابط البث</label>
+                                  <input type="url" class="form-control" id="streamUrl" 
+                                         placeholder="https://stream.example.com/live.m3u8" required>
+                              </div>
+                              <div class="mb-3">
+                                  <label class="form-label">نوع البث</label>
+                                  <select class="form-select" id="streamType">
+                                      <option value="hls">HLS Stream</option>
+                                      <option value="rtmp">RTMP Stream</option>
+                                      <option value="youtube">YouTube Live</option>
+                                  </select>
+                              </div>
+                              <button type="submit" class="btn btn-success">
+                                  <i class="bi bi-play-circle"></i> بدء البث المباشر
+                              </button>
+                          </form>
+                      </div>
+                  </div>
+              </div>
+              
+              <div class="col-md-4">
+                  <div class="card">
+                      <div class="card-header bg-info text-white">
+                          <h5>📋 البثوث النشطة</h5>
+                      </div>
+                      <div class="card-body">
+                          <div id="activeStreams">
+                              <p class="text-muted">لا توجد بثوث نشطة حالياً</p>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          
+          <div class="mt-4">
+              <a href="/admin/dashboard" class="btn btn-secondary">← العودة</a>
+          </div>
+      </div>
+      
+      <script>
+          document.getElementById('streamForm').addEventListener('submit', function(e) {
+              e.preventDefault();
+              
+              const streamData = {
+                  title: document.getElementById('streamTitle').value,
+                  url: document.getElementById('streamUrl').value,
+                  type: document.getElementById('streamType').value
+              };
+              
+              fetch('/api/admin/streams/start', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(streamData)
+              })
+              .then(response => response.json())
+              .then(data => {
+                  if (data.success) {
+                      alert('✅ تم بدء البث المباشر بنجاح');
+                      location.reload();
+                  } else {
+                      alert('❌ ' + data.error);
+                  }
+              })
+              .catch(error => {
+                  console.error('Error:', error);
+                  alert('❌ حدث خطأ في بدء البث');
+              });
+          });
+      </script>
+  </body>
+  </html>
+  `);
+});
+
+// ==================== API للنظام ====================
+
+// فحص صحة النظام
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    service: 'islamic-telegram-bot',
+    service: 'islamic-telegram-bot-enhanced',
     version: '4.0.0',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
+    enhanced_features: {
+      categories: Object.keys(db.enhancedAdhkar.categories || {}).length,
+      pdfs: (db.enhancedAdhkar.pdf_resources || []).length,
+      audios: (db.enhancedAdhkar.audio_resources || []).length
+    },
     database: {
       loaded: Object.keys(db.groups).length > 0,
-      groups: Object.keys(db.groups).length,
-      users: Object.keys(db.users).length
-    },
-    bot: {
-      token_configured: !!process.env.BOT_TOKEN,
-      developer: process.env.DEVELOPER_ID || '6960704733'
+      groups: Object.keys(db.groups).length
     }
   });
 });
 
+// إحصائيات النظام
 app.get('/api/stats', (req, res) => {
-  res.json({
+  const stats = {
     groups: Object.keys(db.groups).length,
     users: Object.keys(db.users).length,
     adhkar: Object.keys(db.adhkar).length,
-    scheduled: Object.keys(db.schedules).length,
-    media: Object.keys(db.media).length,
-    categories: Object.keys(db.categories).length,
+    enhanced_adhkar: Object.keys(db.enhancedAdhkar.categories || {}).length,
+    pdfs: (db.enhancedAdhkar.pdf_resources || []).length,
+    audios: (db.enhancedAdhkar.audio_resources || []).length,
     timestamp: new Date().toISOString()
-  });
+  };
+  
+  res.json(stats);
 });
 
-app.get('/setup-webhook', async (req, res) => {
+// API لإدارة البث
+app.post('/api/admin/streams/start', requireAuth, (req, res) => {
   try {
-    const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://${req.hostname}`;
-    const webhookUrl = `${baseUrl}/webhook`;
+    const { title, url, type } = req.body;
+    const streamId = uuidv4();
     
-    const response = await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
-      {
-        url: webhookUrl,
-        allowed_updates: ['message', 'callback_query'],
-        drop_pending_updates: true
-      }
-    );
+    db.streams[streamId] = {
+      id: streamId,
+      title,
+      url,
+      type,
+      isLive: true,
+      startTime: new Date().toISOString(),
+      viewersCount: 0
+    };
+    
+    saveEnhancedDatabase();
     
     res.json({
-      success: response.data.ok,
-      message: 'تم إعداد webhook بنجاح',
-      url: webhookUrl,
-      timestamp: new Date().toISOString()
+      success: true,
+      streamId,
+      message: 'تم بدء البث المباشر بنجاح'
     });
-    
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message,
-      timestamp: new Date().toISOString()
+      error: error.message
     });
   }
+});
+
+// ==================== تسجيل الخروج ====================
+
+app.get('/admin/logout', (req, res) => {
+  req.session.destroy();
+  res.redirect('/admin/login');
 });
 
 // ==================== بدء الخادم ====================
 
-async function startServer() {
+async function startEnhancedServer() {
   try {
-    // تحميل قاعدة البيانات
-    await loadDatabase();
-    
-    // إعداد الجدولة
-    setupScheduler();
+    // تحميل قاعدة البيانات المطورة
+    await loadEnhancedDatabase();
     
     // بدء الخادم
-    const server = app.listen(PORT, '0.0.0.0', () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`
-  🌐 ===================================================== 🌐
-     ✅ الخادم يعمل بنجاح!
-     📍 http://0.0.0.0:${PORT}
-     ⏰ ${moment().format('YYYY-MM-DD HH:mm:ss')}
-     🤖 ${process.env.BOT_TOKEN ? 'البوت جاهز' : '⚠️ تأكد من BOT_TOKEN'}
-     
-     🔗 لوحة التحكم: /admin
-     🔗 فحص الصحة: /health
-     🔗 إعداد Webhook: /setup-webhook
-  🌐 ===================================================== 🌐
+🌐 ===================================================== 🌐
+   ✅ الخادم المطور يعمل بنجاح!
+   📍 http://0.0.0.0:${PORT}
+   ⏰ ${moment().format('YYYY-MM-DD HH:mm:ss')}
+   
+   🔗 لوحة التحكم: /admin/dashboard
+   🔗 فحص الصحة: /health
+   🔗 إحصائيات: /api/stats
+   
+   ✨ *المميزات المطورة:*
+   • أذكار متنوعة بدون صباح ومساء
+   • ملفات PDF وروابط صوتية
+   • نظام بث مباشر
+   • لوحة تحكم متقدمة
+🌐 ===================================================== 🌐
       `);
     });
     
-    // إعداد webhook تلقائياً
-    setTimeout(async () => {
-      try {
-        if (process.env.RENDER_EXTERNAL_URL) {
-          const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook`;
-          await axios.post(
-            `https://api.telegram.org/bot${process.env.BOT_TOKEN}/setWebhook`,
-            {
-              url: webhookUrl,
-              allowed_updates: ['message', 'callback_query']
-            }
-          );
-          console.log(`✅ تم إعداد webhook: ${webhookUrl}`);
-        }
-      } catch (error) {
-        console.log('⚠️ يمكن استخدام polling mode');
-      }
-    }, 5000);
-    
     // حفظ قاعدة البيانات بشكل دوري
     setInterval(async () => {
-      await saveDatabase();
+      await saveEnhancedDatabase();
     }, 5 * 60 * 1000);
     
-    return server;
+    return app;
     
   } catch (error) {
-    console.error('❌ فشل في بدء الخادم:', error);
+    console.error('❌ فشل في بدء الخادم المطور:', error);
     process.exit(1);
   }
 }
-
-startServer();
 
 // ==================== معالجة الإغلاق ====================
 
 process.on('SIGTERM', async () => {
   console.log('🛑 تلقي إشارة SIGTERM، إيقاف الخادم...');
-  await saveDatabase();
+  await saveEnhancedDatabase();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('🛑 تلقي إشارة SIGINT، إيقاف الخادم...');
-  await saveDatabase();
+  await saveEnhancedDatabase();
   process.exit(0);
 });
+
+// بدء الخادم
+startEnhancedServer();
 
 module.exports = app;
