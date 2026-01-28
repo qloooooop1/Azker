@@ -13,7 +13,8 @@
     "restore": "node scripts/restore.js backup-file.json",
     "test": "echo \"No tests specified\" && exit 0",
     "admin": "node server.js",
-    "enhanced": "node bot.js"
+    "enhanced": "node bot.js",
+    "render-start": "node server.js & node bot.js"
   },
   "keywords": [
     "telegram",
@@ -48,9 +49,9 @@
     "path": "^0.12.7",
     "cors": "^2.8.5",
     "express-session": "^1.17.3",
-    "telegram-session": "^1.0.0",
     "node-telegram-bot-api": "^0.64.0",
-    "mongoose": "^7.5.0"
+    "mongoose": "^7.5.0",
+    "body-parser": "^1.20.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
