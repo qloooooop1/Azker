@@ -1,11 +1,11 @@
 services:
   - type: web
-    name: islamic-telegram-bot
+    name: islamic-telegram-bot-enhanced
     env: node
     region: frankfurt
     plan: free
     buildCommand: npm install
-    startCommand: node server.js
+    startCommand: npm run render-start
     envVars:
       - key: BOT_TOKEN
         value: 8507528865:AAGxbvXjNVg7ITo3awlwn9RRbfUiSDcngZw
@@ -21,6 +21,10 @@ services:
         value: "production"
       - key: TIMEZONE
         value: "Asia/Riyadh"
+      - key: MONGODB_URI
+        value: "mongodb://localhost:27017/islamic_bot_v3"
+      - key: ADMIN_PASSWORD
+        value: "admin123"
     healthCheckPath: /health
     healthCheckTimeout: 30
     autoDeploy: true
