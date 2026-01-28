@@ -22,7 +22,6 @@ if (missingEnvVars.length > 0) {
 console.log('✅ تم التحقق من المتغيرات البيئية');
 console.log(`🤖 توكن البوت: ${process.env.BOT_TOKEN ? '✅ موجود' : '❌ مفقود'}`);
 
-// ... باقي كود البوت يبقى كما هو ...
 // إضافة في بداية ملف bot.js
 const express = require('express');
 const app = express();
@@ -37,7 +36,6 @@ app.listen(PORT, () => {
   console.log(`🌐 Health check server running on port ${PORT}`);
 });
 
-// باقي كود البوت يبقى كما هو...
 // التحقق من أن نسخة واحدة فقط تعمل
 const fs = require('fs');
 const lockFile = '/tmp/bot.lock';
@@ -82,9 +80,9 @@ process.on('SIGINT', () => {
   releaseLock();
   process.exit(0);
 });
-require('dotenv').config();
+
 const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs-extra');
+const fsExtra = require('fs-extra');
 const path = require('path');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
@@ -94,7 +92,12 @@ const { v4: uuidv4 } = require('uuid');
 
 // تعريف الثوابت
 const token = process.env.BOT_TOKEN || '8507528865:AAGxbvXjNVg7ITo3awlwn9RRbfUiSDcngZw';
-const bot = new TelegramBot(token, { polling: true });
+const bot = new TelegramBot(token, { 
+  polling: true,
+  request: {
+    proxy: process.env.PROXY_URL || null
+  }
+});
 
 // إعدادات المجموعات
 const ADMIN_GROUP_ID = '-1003595290365';
@@ -102,23 +105,112 @@ const DATABASE_GROUP_ID = '-1003624663502';
 const DEVELOPER_ID = '6960704733';
 const DEVELOPER_USERNAME = '@dev3bod';
 
-// تحميل بيانات الأذكار
+// تحميل بيانات الأذكار المطورة
 let islamicData = {};
+let enhancedAdhkar = {};
 try {
   islamicData = require('./data/adhkar.json');
-  console.log('✅ تم تحميل بيانات الأذكار بنجاح');
+  enhancedAdhkar = require('./data/enhanced-adhkar.json'); // ملف جديد
+  console.log('✅ تم تحميل بيانات الأذكار المطورة بنجاح');
 } catch (error) {
-  console.error('❌ خطأ في تحميل ملف الأذكار:', error);
-  islamicData = { categories: {} };
+  console.error('❌ خطأ في تحميل ملف الأذكار المطورة:', error);
+  // إنشاء بيانات افتراضية محسنة
+  enhancedAdhkar = {
+    categories: {
+      sleep: {
+        name: "أذكار النوم",
+        items: [
+          {
+            text: "باسمك اللهم أموت وأحيا",
+            source: "حصن المسلم",
+            audio: "https://server.islamic.com/audio/sleep/001.mp3",
+            pdf: "https://server.islamic.com/pdf/sleep-adhkar.pdf"
+          }
+        ]
+      },
+      wakeup: {
+        name: "أذكار الاستيقاظ",
+        items: [
+          {
+            text: "الحمد لله الذي أحيانا بعد ما أماتنا وإليه النشور",
+            source: "حصن المسلم",
+            audio: "https://server.islamic.com/audio/wakeup/001.mp3"
+          }
+        ]
+      },
+      travel: {
+        name: "أذكار السفر",
+        items: [
+          {
+            text: "سبحان الذي سخر لنا هذا وما كنا له مقرنين وإنا إلى ربنا لمنقلبون",
+            source: "حصن المسلم",
+            audio: "https://server.islamic.com/audio/travel/001.mp3",
+            pdf: "https://server.islamic.com/pdf/travel-adhkar.pdf"
+          }
+        ]
+      },
+      eating: {
+        name: "أذكار الطعام",
+        items: [
+          {
+            text: "بسم الله، اللهم بارك لنا فيما رزقتنا وقنا عذاب النار",
+            source: "حصن المسلم",
+            audio: "https://server.islamic.com/audio/eating/001.mp3"
+          }
+        ]
+      }
+    },
+    pdf_resources: [
+      {
+        title: "حصن المسلم كامل",
+        url: "https://ia800908.us.archive.org/16/items/hisn-muslim-pdf/Hisn_Al-Muslim.pdf",
+        description: "كتاب حصن المسلم كامل PDF"
+      },
+      {
+        title: "الأذكار للنووي",
+        url: "https://www.noor-book.com/كتاب-الاذكار-من-كلام-سيد-الابرار-pdf",
+        description: "كتاب الأذكار للإمام النووي"
+      },
+      {
+        title: "سورة الكهف",
+        url: "https://server.islamic.com/pdf/surah-al-kahf.pdf",
+        description: "سورة الكهف كاملة"
+      },
+      {
+        title: "أذكار الصباح والمساء",
+        url: "https://server.islamic.com/pdf/morning-evening-adhkar.pdf",
+        description: "أذكار الصباح والمساء كاملة"
+      }
+    ],
+    audio_resources: [
+      {
+        title: "القرآن الكريم كامل - عبد الباسط",
+        url: "https://everyayah.com/data/Abdul_Basit_Murattal_128kbps/",
+        description: "القرآن الكريم بصوت عبد الباسط عبد الصمد"
+      },
+      {
+        title: "أذكار مسموعة",
+        url: "https://server.islamic.com/audio/adhkar/",
+        description: "مكتبة الأذكار المسموعة"
+      },
+      {
+        title: "دعاء القنوت",
+        url: "https://server.islamic.com/audio/dua/qunut.mp3",
+        description: "دعاء القنوت في الوتر"
+      }
+    ]
+  };
 }
 
-// قاعدة البيانات
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/islamic_bot_v2', {
+// قاعدة البيانات المحسنة
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/islamic_bot_v3', {
   useNewUrlParser: true,
-  useUnifiedTopology: true
+  useUnifiedTopology: true,
+  retryWrites: true,
+  w: 'majority'
 });
 
-// نماذج قاعدة البيانات المحسنة
+// نماذج قاعدة البيانات المحسنة مع إصلاح المشاكل
 const groupSettingsSchema = new mongoose.Schema({
   chatId: { type: String, required: true, unique: true },
   chatTitle: String,
@@ -135,6 +227,7 @@ const groupSettingsSchema = new mongoose.Schema({
     morningAdhkar: { type: Boolean, default: true },
     eveningAdhkar: { type: Boolean, default: true },
     periodicAdhkar: { type: Boolean, default: true },
+    periodicEnhancedAdhkar: { type: Boolean, default: true }, // إضافة الأذكار المطورة
     fridayReminder: { type: Boolean, default: true },
     prayerTimeReminder: { type: Boolean, default: true },
     ramadanReminders: { type: Boolean, default: true },
@@ -145,6 +238,13 @@ const groupSettingsSchema = new mongoose.Schema({
     quranAudio: { type: Boolean, default: true },
     adhkarAudio: { type: Boolean, default: true },
     takbiratAudio: { type: Boolean, default: true },
+    enhancedCategories: { // فئات الأذكار المطورة
+      sleep: { type: Boolean, default: true },
+      wakeup: { type: Boolean, default: true },
+      travel: { type: Boolean, default: true },
+      eating: { type: Boolean, default: true },
+      general: { type: Boolean, default: true }
+    },
     reminderInterval: { type: Number, default: 60 },
     sendAsDocument: { type: Boolean, default: false },
     includeAudio: { type: Boolean, default: true },
@@ -153,11 +253,14 @@ const groupSettingsSchema = new mongoose.Schema({
   customSchedule: {
     morningTime: { type: String, default: '06:00' },
     eveningTime: { type: String, default: '18:00' },
-    fridayTime: { type: String, default: '11:00' }
+    fridayTime: { type: String, default: '11:00' },
+    periodicTime: { type: String, default: '12:00' }
   },
   lastReminderSent: Date,
   reminderCount: { type: Number, default: 0 },
-  isActive: { type: Boolean, default: true }
+  isActive: { type: Boolean, default: true },
+  lastError: String,
+  errorCount: { type: Number, default: 0 }
 });
 
 const userSettingsSchema = new mongoose.Schema({
@@ -180,6 +283,12 @@ const userSettingsSchema = new mongoose.Schema({
     approvedBy: String,
     approvedDate: Date
   }],
+  adminWizardState: { // لحفظ حالة الويزارد
+    step: String,
+    data: mongoose.Schema.Types.Mixed,
+    groupId: String,
+    messageId: String
+  },
   lastActive: Date,
   joinDate: { type: Date, default: Date.now }
 });
@@ -196,7 +305,8 @@ const reminderLogSchema = new mongoose.Schema({
   success: { type: Boolean, default: true },
   error: String,
   includesAudio: Boolean,
-  includesPDF: Boolean
+  includesPDF: Boolean,
+  isEnhanced: { type: Boolean, default: false } // تحديد إذا كان من الأذكار المطورة
 });
 
 const customAdhkarSchema = new mongoose.Schema({
@@ -218,8 +328,55 @@ const customAdhkarSchema = new mongoose.Schema({
   scheduledDate: Date,
   isRecurring: { type: Boolean, default: false },
   recurrencePattern: String,
-  targetGroups: [String], // 'all' أو IDs محددة
-  sentCount: { type: Number, default: 0 }
+  targetGroups: [String],
+  sentCount: { type: Number, default: 0 },
+  isEnhancedCategory: { type: Boolean, default: false } // تحديد إذا كان من الفئات المطورة
+});
+
+// نماذج جديدة للأقسام والوسائط
+const categorySchema = new mongoose.Schema({
+  categoryId: { type: String, default: () => uuidv4() },
+  name: String,
+  description: String,
+  icon: String,
+  enabled: { type: Boolean, default: true },
+  parentCategory: String,
+  sortOrder: Number,
+  items: [{
+    id: String,
+    text: String,
+    source: String,
+    audioUrl: String,
+    pdfUrl: String
+  }],
+  createdAt: { type: Date, default: Date.now }
+});
+
+const mediaLibrarySchema = new mongoose.Schema({
+  mediaId: { type: String, default: () => uuidv4() },
+  filename: String,
+  originalName: String,
+  fileType: String, // audio, pdf, image
+  fileSize: Number,
+  url: String,
+  uploadedBy: String,
+  uploadedAt: { type: Date, default: Date.now },
+  usedIn: [String], // في أي أذكار استخدمت
+  isActive: { type: Boolean, default: true }
+});
+
+const liveStreamSchema = new mongoose.Schema({
+  streamId: { type: String, default: () => uuidv4() },
+  title: String,
+  streamUrl: String,
+  streamType: { type: String, enum: ['hls', 'rtmp', 'youtube', 'm3u8'], default: 'hls' },
+  isLive: { type: Boolean, default: false },
+  viewersCount: { type: Number, default: 0 },
+  startTime: Date,
+  endTime: Date,
+  createdBy: String,
+  createdAt: { type: Date, default: Date.now },
+  isActive: { type: Boolean, default: true }
 });
 
 // إنشاء النماذج
@@ -227,10 +384,15 @@ const db = {
   GroupSettings: mongoose.model('GroupSettings', groupSettingsSchema),
   UserSettings: mongoose.model('UserSettings', userSettingsSchema),
   ReminderLog: mongoose.model('ReminderLog', reminderLogSchema),
-  CustomAdhkar: mongoose.model('CustomAdhkar', customAdhkarSchema)
+  CustomAdhkar: mongoose.model('CustomAdhkar', customAdhkarSchema),
+  Category: mongoose.model('Category', categorySchema),
+  MediaLibrary: mongoose.model('MediaLibrary', mediaLibrarySchema),
+  LiveStream: mongoose.model('LiveStream', liveStreamSchema)
 };
 
-// وظائف مساعدة
+// ========== إصلاح وظائف لوحة التحكم ==========
+
+// وظائف مساعدة محسنة
 async function saveToDatabaseGroup(content, type) {
   try {
     const message = `📥 *إضافة جديدة*\n\n`
@@ -238,7 +400,10 @@ async function saveToDatabaseGroup(content, type) {
       + `⏰ الوقت: ${new Date().toLocaleString('ar-SA')}\n`
       + `📝 المحتوى:\n${content.substring(0, 500)}...`;
     
-    await bot.sendMessage(DATABASE_GROUP_ID, message, { parse_mode: 'Markdown' });
+    await bot.sendMessage(DATABASE_GROUP_ID, message, { 
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true 
+    });
     return true;
   } catch (error) {
     console.error('❌ خطأ في الحفظ للمجموعة:', error);
@@ -250,776 +415,938 @@ async function broadcastToAllGroups(message, options = {}) {
   const groups = await db.GroupSettings.find({ enabled: true, isActive: true });
   let successCount = 0;
   let failCount = 0;
+  const errors = [];
   
   for (const group of groups) {
     try {
-      await bot.sendMessage(group.chatId, message, options);
+      await bot.sendMessage(group.chatId, message, {
+        parse_mode: options.parse_mode || 'Markdown',
+        disable_web_page_preview: true,
+        ...options
+      });
       successCount++;
       
-      // إضافة تأخير لتجنب حظر التيليجرام
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // تأخير لتجنب حظر التيليجرام
+      await new Promise(resolve => setTimeout(resolve, 150));
     } catch (error) {
       console.error(`خطأ في الإرسال للمجموعة ${group.chatId}:`, error.message);
       failCount++;
+      errors.push({ group: group.chatId, error: error.message });
       
       // إذا كانت المجموعة محذوفة، تعطيلها
       if (error.response && error.response.statusCode === 403) {
         group.isActive = false;
+        group.lastError = error.message;
+        group.errorCount += 1;
         await group.save();
       }
     }
   }
   
-  return { successCount, failCount, total: groups.length };
+  return { successCount, failCount, total: groups.length, errors };
 }
 
-// لوحة التحكم المحسنة
-function getDeveloperKeyboard(userId) {
+// ========== إصلاح لوحة المطور ==========
+
+function getDeveloperKeyboard(userId, context = 'main') {
   const isDeveloper = userId.toString() === DEVELOPER_ID;
   
-  const keyboard = {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: '📝 إضافة ذكر/دعاء', callback_data: 'add_adhkar' },
-          { text: '📊 إدارة المحتوى', callback_data: 'manage_content' }
-        ],
-        [
-          { text: '👥 إدارة المجموعات', callback_data: 'manage_groups' },
-          { text: '🔄 جدولة البث', callback_data: 'schedule_broadcast' }
-        ],
-        [
-          { text: '📨 بث مباشر', callback_data: 'instant_broadcast' },
-          { text: '⚙️ إعدادات متقدمة', callback_data: 'advanced_settings' }
-        ],
-        [
-          { text: '💾 نسخة احتياطية', callback_data: 'backup_data' },
-          { text: '📈 إحصائيات مفصلة', callback_data: 'detailed_stats' }
-        ],
-        [
-          { text: '🔧 صيانة النظام', callback_data: 'system_maintenance' },
-          { text: '🎯 اختبار الإرسال', callback_data: 'test_send' }
-        ]
-      ]
-    }
-  };
+  let keyboard = {};
   
-  if (!isDeveloper) {
-    keyboard.reply_markup.inline_keyboard = keyboard.reply_markup.inline_keyboard.filter(row => 
-      !['🔧 صيانة النظام', '🎯 اختبار الإرسال'].includes(row[0].text)
-    );
+  switch(context) {
+    case 'main':
+      keyboard = {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📝 إدارة المحتوى', callback_data: 'dev_content' },
+              { text: '👥 إدارة المجموعات', callback_data: 'dev_groups' }
+            ],
+            [
+              { text: '🎧 إدارة الوسائط', callback_data: 'dev_media' },
+              { text: '📨 نظام البث', callback_data: 'dev_broadcast' }
+            ],
+            [
+              { text: '📂 الأقسام والفئات', callback_data: 'dev_categories' },
+              { text: '🎯 البث المباشر', callback_data: 'dev_livestream' }
+            ],
+            [
+              { text: '📊 التقارير والإحصائيات', callback_data: 'dev_reports' },
+              { text: '⚙️ إعدادات النظام', callback_data: 'dev_settings' }
+            ],
+            isDeveloper ? [
+              { text: '🔧 صيانة النظام', callback_data: 'dev_maintenance' },
+              { text: '💾 نسخ احتياطي', callback_data: 'dev_backup' }
+            ] : []
+          ].filter(row => row.length > 0)
+        }
+      };
+      break;
+      
+    case 'content':
+      keyboard = {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '➕ إضافة ذكر جديد', callback_data: 'add_adhkar' },
+              { text: '📋 عرض الأذكار', callback_data: 'list_adhkar' }
+            ],
+            [
+              { text: '✏️ تعديل ذكر', callback_data: 'edit_adhkar' },
+              { text: '🗑️ حذف ذكر', callback_data: 'delete_adhkar' }
+            ],
+            [
+              { text: '📁 إدارة الفئات', callback_data: 'manage_categories' },
+              { text: '🔄 استيراد/تصدير', callback_data: 'import_export' }
+            ],
+            [
+              { text: '◀️ العودة', callback_data: 'dev_back' }
+            ]
+          ]
+        }
+      };
+      break;
+      
+    case 'groups':
+      keyboard = {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📊 إحصائيات المجموعات', callback_data: 'groups_stats' },
+              { text: '👁️ عرض المجموعات', callback_data: 'view_groups' }
+            ],
+            [
+              { text: '⚙️ إعدادات جماعية', callback_data: 'bulk_settings' },
+              { text: '📨 إرسال جماعي', callback_data: 'bulk_send' }
+            ],
+            [
+              { text: '🔍 بحث عن مجموعة', callback_data: 'search_group' },
+              { text: '📋 تصدير البيانات', callback_data: 'export_groups' }
+            ],
+            [
+              { text: '◀️ العودة', callback_data: 'dev_back' }
+            ]
+          ]
+        }
+      };
+      break;
+      
+    case 'media':
+      keyboard = {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🎵 رفع صوتيات', callback_data: 'upload_audio' },
+              { text: '📄 رفع ملفات PDF', callback_data: 'upload_pdf' }
+            ],
+            [
+              { text: '📋 الوسائط المرفوعة', callback_data: 'list_media' },
+              { text: '🔗 إدارة الروابط', callback_data: 'manage_links' }
+            ],
+            [
+              { text: '🗑️ حذف وسائط', callback_data: 'delete_media' },
+              { text: '📁 تنظيم الوسائط', callback_data: 'organize_media' }
+            ],
+            [
+              { text: '◀️ العودة', callback_data: 'dev_back' }
+            ]
+          ]
+        }
+      };
+      break;
+      
+    case 'categories':
+      keyboard = {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '➕ إضافة قسم جديد', callback_data: 'add_category' },
+              { text: '📋 عرض الأقسام', callback_data: 'list_categories' }
+            ],
+            [
+              { text: '✏️ تعديل قسم', callback_data: 'edit_category' },
+              { text: '🗑️ حذف قسم', callback_data: 'delete_category' }
+            ],
+            [
+              { text: '🎯 الفئات المطورة', callback_data: 'enhanced_categories' },
+              { text: '📊 إحصائيات الفئات', callback_data: 'categories_stats' }
+            ],
+            [
+              { text: '◀️ العودة', callback_data: 'dev_back' }
+            ]
+          ]
+        }
+      };
+      break;
   }
   
   return keyboard;
 }
 
-// معالجة الأوامر
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-  const isPrivate = msg.chat.type === 'private';
-  
-  // تسجيل المستخدم
-  await registerUser(msg.from);
-  
-  if (!isPrivate) {
-    // في المجموعات: عرض خيارات للمديرين
-    try {
-      const chatMember = await bot.getChatMember(chatId, userId);
-      if (['administrator', 'creator'].includes(chatMember.status)) {
-        const keyboard = {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '⚙️ فتح لوحة التحكم', url: `https://t.me/${bot.options.username}?start=group_${chatId}` },
-                { text: '📊 إعدادات المجموعة', callback_data: `group_settings_${chatId}` }
-              ]
-            ]
-          }
-        };
-        
-        await bot.sendMessage(chatId, 
-          `👋 *مرحباً ${msg.from.first_name}*\n\n` +
-          `لتحكم في إعدادات البوت في هذه المجموعة، اضغط على الزر أدناه:`, 
-          { parse_mode: 'Markdown', ...keyboard }
-        );
-      }
-    } catch (error) {
-      console.error('خطأ في التحقق من الصلاحيات:', error);
-    }
-    return;
-  }
-  
-  // في الخاص: عرض لوحة التحكم المناسبة
-  const user = await db.UserSettings.findOne({ userId: userId.toString() });
-  const isAdmin = user ? (user.isDeveloper || user.isSuperAdmin) : (userId.toString() === DEVELOPER_ID);
-  
-  if (isAdmin) {
-    await showDeveloperPanel(chatId, userId);
-  } else {
-    await showUserDashboard(chatId, userId);
-  }
-});
-
-// لوحة المطور المحسنة
+// عرض لوحة المطور المحسنة
 async function showDeveloperPanel(chatId, userId) {
-  const stats = await getDetailedStatistics();
-  
-  const message = `👑 *لوحة تحكم المطور*\n\n` +
-    `📊 *الإحصائيات الحالية:*\n` +
-    `👥 مجموعات نشطة: ${stats.activeGroups}\n` +
-    `📨 رسائل اليوم: ${stats.todayMessages}\n` +
-    `📝 أذكار مضافة: ${stats.totalAdhkar}\n` +
-    `✅ ناجحة: ${stats.successRate}%\n\n` +
-    `⏰ *آخر نشاط:*\n${stats.lastActivity}\n\n` +
-    `🔧 *الأدوات المتاحة:*\n` +
-    `يمكنك إدارة جميع محتويات البوت من هنا`;
-  
-  await bot.sendMessage(chatId, message, {
-    parse_mode: 'Markdown',
-    ...getDeveloperKeyboard(userId)
-  });
+  try {
+    const stats = await getDetailedStatistics();
+    
+    const message = `👑 *لوحة تحكم المطور*\n\n` +
+      `📊 *الإحصائيات الحالية:*\n` +
+      `👥 المجموعات النشطة: ${stats.activeGroups}\n` +
+      `👤 المستخدمين: ${stats.totalUsers}\n` +
+      `📝 الأذكار الكلية: ${stats.totalAdhkar}\n` +
+      `🎧 الوسائط: ${stats.totalMedia}\n` +
+      `📂 الأقسام: ${stats.totalCategories}\n` +
+      `✅ نسبة النجاح: ${stats.successRate}%\n\n` +
+      `⏰ *آخر نشاط:*\n${stats.lastActivity}\n\n` +
+      `🔧 *الأدوات المتاحة:*\n` +
+      `يمكنك إدارة جميع محتويات البوت من الأقسام التالية:`;
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...getDeveloperKeyboard(userId, 'main')
+    });
+  } catch (error) {
+    console.error('خطأ في عرض لوحة المطور:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح لوحة التحكم. حاول مرة أخرى.');
+  }
 }
 
-// إضافة ذكر/دعاء جديد
+// ========== إصلاح معالجة الأزرار ==========
+
+// معالجة callback queries محسنة
 bot.on('callback_query', async (callbackQuery) => {
   const msg = callbackQuery.message;
   const userId = callbackQuery.from.id;
   const data = callbackQuery.data;
+  const messageId = callbackQuery.message.message_id;
   
   try {
+    console.log(`📲 Callback received: ${data} from ${userId}`);
+    
+    // قسم البيانات
+    const parts = data.split('_');
+    const action = parts[0];
+    const target = parts[1];
+    
+    // معالجة الإجراءات العامة
     switch(data) {
-      case 'add_adhkar':
-        await startAddAdhkarWizard(msg.chat.id, userId);
-        break;
+      case 'dev_back':
+        await showDeveloperPanel(msg.chat.id, userId);
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
         
-      case 'manage_content':
+      case 'dev_content':
         await showContentManagement(msg.chat.id, userId);
-        break;
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
         
-      case 'instant_broadcast':
-        await startInstantBroadcast(msg.chat.id, userId);
-        break;
-        
-      case 'schedule_broadcast':
-        await showScheduleOptions(msg.chat.id, userId);
-        break;
-        
-      case 'manage_groups':
+      case 'dev_groups':
         await showGroupManagement(msg.chat.id, userId);
-        break;
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
         
-      default:
-        if (data.startsWith('category_')) {
-          const category = data.replace('category_', '');
-          await showCategoryAdhkar(msg.chat.id, userId, category);
-        }
+      case 'dev_media':
+        await showMediaManagement(msg.chat.id, userId);
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
+        
+      case 'dev_broadcast':
+        await showBroadcastManagement(msg.chat.id, userId);
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
+        
+      case 'dev_categories':
+        await showCategoriesManagement(msg.chat.id, userId);
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
+        
+      case 'dev_livestream':
+        await showLiveStreamManagement(msg.chat.id, userId);
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
+    }
+    
+    // معالجة الإجراءات المحددة
+    if (data.startsWith('add_')) {
+      await handleAddAction(msg.chat.id, userId, data.replace('add_', ''));
+    } else if (data.startsWith('edit_')) {
+      await handleEditAction(msg.chat.id, userId, data.replace('edit_', ''));
+    } else if (data.startsWith('delete_')) {
+      await handleDeleteAction(msg.chat.id, userId, data.replace('delete_', ''));
+    } else if (data.startsWith('list_')) {
+      await handleListAction(msg.chat.id, userId, data.replace('list_', ''));
+    } else if (data.startsWith('manage_')) {
+      await handleManageAction(msg.chat.id, userId, data.replace('manage_', ''));
+    } else if (data.startsWith('upload_')) {
+      await handleUploadAction(msg.chat.id, userId, data.replace('upload_', ''));
+    } else if (data.startsWith('category_')) {
+      const categoryId = data.replace('category_', '');
+      await showCategoryDetails(msg.chat.id, userId, categoryId);
+    } else if (data.startsWith('adhkar_')) {
+      const adhkarId = data.replace('adhkar_', '');
+      await showAdhkarDetails(msg.chat.id, userId, adhkarId);
+    } else if (data.startsWith('media_')) {
+      const mediaId = data.replace('media_', '');
+      await showMediaDetails(msg.chat.id, userId, mediaId);
+    } else if (data.startsWith('group_')) {
+      const groupId = data.replace('group_', '');
+      await showGroupDetails(msg.chat.id, userId, groupId);
     }
     
     await bot.answerCallbackQuery(callbackQuery.id);
   } catch (error) {
-    console.error('خطأ في معالجة callback:', error);
-    await bot.answerCallbackQuery(callbackQuery.id, { text: '❌ حدث خطأ، حاول مرة أخرى' });
+    console.error('❌ خطأ في معالجة callback:', error);
+    await bot.answerCallbackQuery(callbackQuery.id, { 
+      text: '❌ حدث خطأ في المعالجة. حاول مرة أخرى.' 
+    });
   }
 });
 
-// واجهة إضافة ذكر/دعاء
-async function startAddAdhkarWizard(chatId, userId) {
-  const categories = Object.keys(islamicData.categories || {});
-  
-  const keyboard = {
-    reply_markup: {
-      inline_keyboard: [
-        ...categories.map(cat => [{
-          text: islamicData.categories[cat].name,
-          callback_data: `select_category_${cat}`
-        }]),
-        [
-          { text: '📁 فئة جديدة', callback_data: 'new_category' },
-          { text: '◀️ عودة', callback_data: 'back_to_dev' }
-        ]
-      ]
-    }
-  };
-  
-  await bot.sendMessage(chatId, 
-    `📝 *إضافة ذكر أو دعاء جديد*\n\n` +
-    `اختر الفئة المناسبة للذكر/الدعاء:`, 
-    { parse_mode: 'Markdown', ...keyboard }
-  );
-}
+// ========== إصلاح إدارة المحتوى ==========
 
-// معالجة اختيار الفئة
-bot.on('callback_query', async (callbackQuery) => {
-  const data = callbackQuery.data;
-  
-  if (data.startsWith('select_category_')) {
-    const category = data.replace('select_category_', '');
-    await askForAdhkarText(callbackQuery.message.chat.id, callbackQuery.from.id, category);
-  }
-});
-
-// طلب نص الذكر
-async function askForAdhkarText(chatId, userId, category) {
-  await bot.sendMessage(chatId,
-    `📝 *إضافة ذكر لفئة ${islamicData.categories[category].name}*\n\n` +
-    `أرسل نص الذكر أو الدعاء الآن:\n\n` +
-    `*ملاحظة:* يمكنك إضافة:\n` +
-    `• رابط صوتي (mp3)\n` +
-    `• رابط PDF\n` +
-    `• المصدر (اختياري)`,
-    { parse_mode: 'Markdown' }
-  );
-  
-  // حفظ الحالة
-  const user = await db.UserSettings.findOne({ userId: userId.toString() });
-  user.adhkarWizard = { category, step: 'text' };
-  await user.save();
-}
-
-// معالجة الرسائل النصية لإضافة الأذكار
-bot.on('message', async (msg) => {
-  if (msg.chat.type !== 'private' || !msg.text || msg.text.startsWith('/')) {
-    return;
-  }
-  
-  const userId = msg.from.id.toString();
-  const user = await db.UserSettings.findOne({ userId });
-  
-  if (user && user.adhkarWizard) {
-    await processAdhkarWizard(msg, user);
-  }
-});
-
-async function processAdhkarWizard(msg, user) {
-  const chatId = msg.chat.id;
-  const wizard = user.adhkarWizard;
-  
-  switch(wizard.step) {
-    case 'text':
-      wizard.text = msg.text;
-      wizard.step = 'source';
-      
-      await bot.sendMessage(chatId,
-        `📚 *الخطوة 2: المصدر*\n\n` +
-        `أرسل مصدر الذكر (مثال: حصن المسلم، صحيح البخاري، إلخ):\n\n` +
-        `أو أرسل /تخطي للاستمرار`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-      
-    case 'source':
-      if (msg.text !== '/تخطي') {
-        wizard.source = msg.text;
-      }
-      wizard.step = 'audio';
-      
-      await bot.sendMessage(chatId,
-        `🎵 *الخطوة 3: رابط صوتي*\n\n` +
-        `أرسل رابط صوتي للذكر (MP3):\n\n` +
-        `أو أرسل /تخطي للاستمرار`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-      
-    case 'audio':
-      if (msg.text !== '/تخطي') {
-        wizard.audioUrl = msg.text;
-      }
-      wizard.step = 'pdf';
-      
-      await bot.sendMessage(chatId,
-        `📄 *الخطوة 4: رابط PDF*\n\n` +
-        `أرسل رابط PDF (اختياري):\n\n` +
-        `أو أرسل /تخطي للاستمرار`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-      
-    case 'pdf':
-      if (msg.text !== '/تخطي') {
-        wizard.pdfUrl = msg.text;
-      }
-      wizard.step = 'schedule';
-      
-      const keyboard = {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '⏰ فوراً', callback_data: 'schedule_now' },
-              { text: '📅 جدولة', callback_data: 'schedule_later' }
-            ],
-            [
-              { text: '🔄 متكرر', callback_data: 'schedule_recurring' }
-            ]
-          ]
-        }
-      };
-      
-      await bot.sendMessage(chatId,
-        `⏰ *الخطوة 5: الجدولة*\n\n` +
-        `متى تريد إرسال هذا الذكر؟`,
-        { parse_mode: 'Markdown', ...keyboard }
-      );
-      break;
-  }
-  
-  user.adhkarWizard = wizard;
-  await user.save();
-}
-
-// معالجة جدولة الذكر
-bot.on('callback_query', async (callbackQuery) => {
-  const data = callbackQuery.data;
-  const userId = callbackQuery.from.id.toString();
-  
-  if (data.startsWith('schedule_')) {
-    const user = await db.UserSettings.findOne({ userId });
-    const wizard = user.adhkarWizard;
-    
-    if (data === 'schedule_now') {
-      await saveAndBroadcastAdhkar(userId, wizard, 'now');
-    } else if (data === 'schedule_later') {
-      await askForScheduleTime(callbackQuery.message.chat.id, userId);
-    } else if (data === 'schedule_recurring') {
-      await askForRecurrencePattern(callbackQuery.message.chat.id, userId);
-    }
-  }
-});
-
-// حفظ الذكر وإرساله
-async function saveAndBroadcastAdhkar(userId, wizard, scheduleType) {
-  // حفظ في قاعدة البيانات
-  const newAdhkar = new db.CustomAdhkar({
-    addedBy: userId,
-    addedByUsername: wizard.username,
-    category: wizard.category,
-    text: wizard.text,
-    source: wizard.source || 'مستخدم',
-    audioUrl: wizard.audioUrl,
-    pdfUrl: wizard.pdfUrl,
-    approved: userId === DEVELOPER_ID, // المطور يوافق تلقائياً
-    addedDate: new Date()
-  });
-  
-  if (scheduleType === 'now') {
-    newAdhkar.scheduledDate = new Date();
-    newAdhkar.targetGroups = ['all'];
-  }
-  
-  await newAdhkar.save();
-  
-  // حفظ في مجموعة قاعدة البيانات
-  const dbMessage = `📥 *تم إضافة ذكر جديد*\n\n` +
-    `👤 المضيف: ${wizard.username || userId}\n` +
-    `📂 الفئة: ${islamicData.categories[wizard.category].name}\n` +
-    `📝 النص: ${wizard.text.substring(0, 200)}...\n` +
-    `⏰ الجدولة: ${scheduleType}\n` +
-    `✅ الحالة: ${newAdhkar.approved ? 'مقبول' : 'بانتظار الموافقة'}`;
-  
-  await saveToDatabaseGroup(dbMessage, 'إضافة ذكر');
-  
-  // إذا كان مقبولاً، نشره على المجموعات
-  if (newAdhkar.approved && scheduleType === 'now') {
-    await broadcastCustomAdhkar(newAdhkar);
-  }
-  
-  // إرسال تأكيد للمستخدم
-  const userChatId = (await db.UserSettings.findOne({ userId }))?.chatId || userId;
-  await bot.sendMessage(userChatId,
-    `✅ *تم حفظ الذكر بنجاح*\n\n` +
-    `سيتم ${newAdhkar.approved ? 'نشره على المجموعات' : 'مراجعته من قبل المطور'}`,
-    { parse_mode: 'Markdown' }
-  );
-}
-
-// بث الذكر المخصص
-async function broadcastCustomAdhkar(adhkar) {
-  const groups = await db.GroupSettings.find({ enabled: true, isActive: true });
-  
-  for (const group of groups) {
-    try {
-      let message = `🕌 *${islamicData.categories[adhkar.category].name}*\n\n` +
-        `${adhkar.text}\n\n`;
-      
-      if (adhkar.source) {
-        message += `📖 المصدر: ${adhkar.source}\n\n`;
-      }
-      
-      message += `✨ شارك الخير: @${bot.options.username}`;
-      
-      const options = { parse_mode: 'Markdown' };
-      
-      // إضافة الوسائط
-      if (adhkar.audioUrl && group.settings.includeAudio) {
-        try {
-          await bot.sendAudio(group.chatId, adhkar.audioUrl, {
-            caption: message,
-            parse_mode: 'Markdown'
-          });
-          continue;
-        } catch (error) {
-          console.error('خطأ في إرسال الصوت:', error);
-        }
-      }
-      
-      if (adhkar.pdfUrl && group.settings.includePDF) {
-        try {
-          await bot.sendDocument(group.chatId, adhkar.pdfUrl, {
-            caption: message,
-            parse_mode: 'Markdown'
-          });
-          continue;
-        } catch (error) {
-          console.error('خطأ في إرسال PDF:', error);
-        }
-      }
-      
-      // إرسال نصي فقط
-      await bot.sendMessage(group.chatId, message, options);
-      
-      // تحديث العداد
-      adhkar.sentCount += 1;
-      await adhkar.save();
-      
-      // تسجيل في السجل
-      await new db.ReminderLog({
-        chatId: group.chatId,
-        reminderType: 'custom',
-        category: adhkar.category,
-        adhkarId: adhkar.adhkarId,
-        message: adhkar.text,
-        includesAudio: !!adhkar.audioUrl,
-        includesPDF: !!adhkar.pdfUrl
-      }).save();
-      
-      // تأخير بين المجموعات
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-    } catch (error) {
-      console.error(`خطأ في البث للمجموعة ${group.chatId}:`, error.message);
-    }
-  }
-}
-
-// إدارة المحتوى
 async function showContentManagement(chatId, userId) {
-  const pendingCount = await db.CustomAdhkar.countDocuments({ approved: false });
-  const totalCount = await db.CustomAdhkar.countDocuments();
-  
-  const keyboard = {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: `📝 المعروضات (${pendingCount})`, callback_data: 'view_pending' },
-          { text: `📊 الكل (${totalCount})`, callback_data: 'view_all_content' }
-        ],
-        [
-          { text: '🔍 بحث في المحتوى', callback_data: 'search_content' },
-          { text: '📂 تصدير المحتوى', callback_data: 'export_content' }
-        ],
-        [
-          { text: '◀️ عودة', callback_data: 'back_to_dev' }
-        ]
-      ]
-    }
-  };
-  
-  await bot.sendMessage(chatId,
-    `📊 *إدارة المحتوى*\n\n` +
-    `• معروضات بانتظار الموافقة: ${pendingCount}\n` +
-    `• إجمالي المحتوى: ${totalCount}\n\n` +
-    `اختر الإجراء المطلوب:`,
-    { parse_mode: 'Markdown', ...keyboard }
-  );
+  try {
+    const totalAdhkar = await db.CustomAdhkar.countDocuments();
+    const pendingAdhkar = await db.CustomAdhkar.countDocuments({ approved: false });
+    const categories = await db.Category.countDocuments();
+    
+    const message = `📝 *إدارة المحتوى*\n\n` +
+      `📊 *إحصائيات المحتوى:*\n` +
+      `📝 الأذكار الكلية: ${totalAdhkar}\n` +
+      `⏳ بانتظار الموافقة: ${pendingAdhkar}\n` +
+      `📂 الأقسام: ${categories}\n\n` +
+      `🔧 *اختر الإجراء المطلوب:*`;
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...getDeveloperKeyboard(userId, 'content')
+    });
+  } catch (error) {
+    console.error('خطأ في عرض إدارة المحتوى:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح إدارة المحتوى.');
+  }
 }
 
-// بث مباشر
-async function startInstantBroadcast(chatId, userId) {
-  await bot.sendMessage(chatId,
-    `📨 *البث المباشر*\n\n` +
-    `أرسل الرسالة التي تريد بثها لجميع المجموعات:\n\n` +
-    `*يمكنك إضافة:*\n` +
-    `• نص\n` +
-    `• صور\n` +
-    `• صوت\n` +
-    `• ملفات\n\n` +
-    `أو أرسل /إلغاء للإلغاء`,
-    { parse_mode: 'Markdown' }
-  );
-  
-  const user = await db.UserSettings.findOne({ userId: userId.toString() });
-  user.broadcastWizard = { step: 'message' };
-  await user.save();
+// ========== إصلاح إدارة المجموعات ==========
+
+async function showGroupManagement(chatId, userId) {
+  try {
+    const activeGroups = await db.GroupSettings.countDocuments({ isActive: true });
+    const totalGroups = await db.GroupSettings.countDocuments();
+    const disabledGroups = totalGroups - activeGroups;
+    
+    const message = `👥 *إدارة المجموعات*\n\n` +
+      `📊 *إحصائيات المجموعات:*\n` +
+      `🟢 نشطة: ${activeGroups}\n` +
+      `🔴 معطلة: ${disabledGroups}\n` +
+      `📊 الإجمالي: ${totalGroups}\n\n` +
+      `🔧 *اختر الإجراء المطلوب:*`;
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...getDeveloperKeyboard(userId, 'groups')
+    });
+  } catch (error) {
+    console.error('خطأ في عرض إدارة المجموعات:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح إدارة المجموعات.');
+  }
 }
 
-// معالجة البث المباشر
-bot.on('message', async (msg) => {
-  if (msg.chat.type !== 'private' || !msg.text || msg.text.startsWith('/')) {
-    return;
-  }
-  
-  const userId = msg.from.id.toString();
-  const user = await db.UserSettings.findOne({ userId });
-  
-  if (user && user.broadcastWizard) {
-    if (msg.text === '/إلغاء') {
-      delete user.broadcastWizard;
-      await user.save();
-      await bot.sendMessage(msg.chat.id, 'تم إلغاء البث المباشر.');
-      return;
-    }
-    
-    await processBroadcastWizard(msg, user);
-  }
-});
+// ========== إصلاح إدارة الوسائط ==========
 
-async function processBroadcastWizard(msg, user) {
-  const chatId = msg.chat.id;
-  const wizard = user.broadcastWizard;
-  
-  if (wizard.step === 'message') {
-    wizard.message = msg.text || msg.caption || '';
-    wizard.media = msg.photo ? msg.photo[0].file_id : 
-                   msg.audio ? msg.audio.file_id : 
-                   msg.document ? msg.document.file_id : null;
-    wizard.mediaType = msg.photo ? 'photo' : 
-                       msg.audio ? 'audio' : 
-                       msg.document ? 'document' : 'text';
+async function showMediaManagement(chatId, userId) {
+  try {
+    const totalMedia = await db.MediaLibrary.countDocuments();
+    const audioCount = await db.MediaLibrary.countDocuments({ fileType: 'audio' });
+    const pdfCount = await db.MediaLibrary.countDocuments({ fileType: 'pdf' });
     
-    wizard.step = 'confirm';
+    const message = `🎧 *إدارة الوسائط*\n\n` +
+      `📊 *إحصائيات الوسائط:*\n` +
+      `🎵 ملفات صوتية: ${audioCount}\n` +
+      `📄 ملفات PDF: ${pdfCount}\n` +
+      `📁 الإجمالي: ${totalMedia}\n\n` +
+      `🔧 *اختر الإجراء المطلوب:*`;
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...getDeveloperKeyboard(userId, 'media')
+    });
+  } catch (error) {
+    console.error('خطأ في عرض إدارة الوسائط:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح إدارة الوسائط.');
+  }
+}
+
+// ========== إصلاح نظام البث ==========
+
+async function showBroadcastManagement(chatId, userId) {
+  try {
+    const scheduledCount = await db.CustomAdhkar.countDocuments({ 
+      scheduledDate: { $gt: new Date() } 
+    });
+    
+    const message = `📨 *نظام البث المتقدم*\n\n` +
+      `📊 *المهام المجدولة:* ${scheduledCount}\n\n` +
+      `🔧 *أنواع البث المتاحة:*\n` +
+      `• بث فوري للمجموعات\n` +
+      `• بث مجدول بوقت محدد\n` +
+      `• بث متكرر (يومي، أسبوعي)\n` +
+      `• بث شرطي حسب الفئات\n\n` +
+      `⚙️ *اختر نوع البث:*`;
     
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '✅ تأكيد البث', callback_data: 'confirm_broadcast' },
-            { text: '❌ إلغاء', callback_data: 'cancel_broadcast' }
+            { text: '🚀 بث فوري', callback_data: 'broadcast_instant' },
+            { text: '📅 بث مجدول', callback_data: 'broadcast_scheduled' }
+          ],
+          [
+            { text: '🔄 بث متكرر', callback_data: 'broadcast_recurring' },
+            { text: '🎯 بث حسب الفئة', callback_data: 'broadcast_by_category' }
+          ],
+          [
+            { text: '📊 إحصائيات البث', callback_data: 'broadcast_stats' },
+            { text: '◀️ العودة', callback_data: 'dev_back' }
           ]
         ]
       }
     };
     
-    await bot.sendMessage(chatId,
-      `📨 *تأكيد البث المباشر*\n\n` +
-      `الرسالة: ${wizard.message.substring(0, 200)}...\n\n` +
-      `سيتم إرسال هذه الرسالة لجميع المجموعات النشطة.\n` +
-      `هل تريد المتابعة؟`,
-      { parse_mode: 'Markdown', ...keyboard }
-    );
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...keyboard
+    });
+  } catch (error) {
+    console.error('خطأ في عرض نظام البث:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح نظام البث.');
   }
 }
 
-// تأكيد البث
-bot.on('callback_query', async (callbackQuery) => {
-  const data = callbackQuery.data;
-  const userId = callbackQuery.from.id.toString();
-  
-  if (data === 'confirm_broadcast') {
-    const user = await db.UserSettings.findOne({ userId });
-    const wizard = user.broadcastWizard;
+// ========== إصلاح الأقسام والفئات ==========
+
+async function showCategoriesManagement(chatId, userId) {
+  try {
+    const categories = await db.Category.countDocuments();
+    const enhancedCategories = Object.keys(enhancedAdhkar.categories || {}).length;
     
-    if (wizard) {
-      await executeBroadcast(userId, wizard);
-      delete user.broadcastWizard;
-      await user.save();
-    }
-  } else if (data === 'cancel_broadcast') {
-    const user = await db.UserSettings.findOne({ userId });
-    delete user.broadcastWizard;
-    await user.save();
-    await bot.editMessageText('تم إلغاء البث.', {
-      chat_id: callbackQuery.message.chat.id,
-      message_id: callbackQuery.message.message_id
+    const message = `📂 *إدارة الأقسام والفئات*\n\n` +
+      `📊 *إحصائيات الفئات:*\n` +
+      `📁 الأقسام المخصصة: ${categories}\n` +
+      `🌟 الفئات المطورة: ${enhancedCategories}\n\n` +
+      `🔧 *اختر الإجراء المطلوب:*`;
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...getDeveloperKeyboard(userId, 'categories')
     });
+  } catch (error) {
+    console.error('خطأ في عرض إدارة الأقسام:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح إدارة الأقسام.');
+  }
+}
+
+// ========== إصلاح نظام البث المباشر ==========
+
+async function showLiveStreamManagement(chatId, userId) {
+  try {
+    const liveStreams = await db.LiveStream.countDocuments({ isLive: true });
+    const totalStreams = await db.LiveStream.countDocuments();
+    
+    const message = `🎯 *نظام البث المباشر*\n\n` +
+      `📊 *إحصائيات البث:*\n` +
+      `🔴 بث مباشر الآن: ${liveStreams}\n` +
+      `📁 إجمالي البثوث: ${totalStreams}\n\n` +
+      `🔧 *اختر الإجراء المطلوب:*`;
+    
+    const keyboard = {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '🎥 بدء بث مباشر', callback_data: 'livestream_start' },
+            { text: '📋 عرض البثوث', callback_data: 'livestream_list' }
+          ],
+          [
+            { text: '⚙️ إدارة البثوث', callback_data: 'livestream_manage' },
+            { text: '🗑️ حذف بث', callback_data: 'livestream_delete' }
+          ],
+          [
+            { text: '📊 إحصائيات المشاهدات', callback_data: 'livestream_stats' },
+            { text: '◀️ العودة', callback_data: 'dev_back' }
+          ]
+        ]
+      }
+    };
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...keyboard
+    });
+  } catch (error) {
+    console.error('خطأ في عرض نظام البث المباشر:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح نظام البث المباشر.');
+  }
+}
+
+// ========== إصلاح عرض الفئات المطورة ==========
+
+async function showEnhancedCategories(chatId, userId) {
+  try {
+    const categories = enhancedAdhkar.categories || {};
+    const categoryList = Object.entries(categories).map(([key, cat]) => 
+      `• ${cat.name}: ${cat.items?.length || 0} ذكر`
+    ).join('\n');
+    
+    const message = `🌟 *الفئات المطورة للأذكار*\n\n` +
+      `📂 *الفئات المتاحة:*\n${categoryList}\n\n` +
+      `📚 *الموارد المتاحة:*\n` +
+      `📄 ملفات PDF: ${enhancedAdhkar.pdf_resources?.length || 0}\n` +
+      `🎵 روابط صوتية: ${enhancedAdhkar.audio_resources?.length || 0}\n\n` +
+      `🔧 *اختر الفئة:*`;
+    
+    const keyboard = {
+      reply_markup: {
+        inline_keyboard: [
+          ...Object.entries(categories).map(([key, cat]) => [
+            { text: `${cat.name} (${cat.items?.length || 0})`, callback_data: `enhanced_category_${key}` }
+          ]),
+          [
+            { text: '📄 عرض ملفات PDF', callback_data: 'enhanced_pdfs' },
+            { text: '🎵 عرض روابط صوتية', callback_data: 'enhanced_audios' }
+          ],
+          [
+            { text: '◀️ العودة', callback_data: 'dev_categories' }
+          ]
+        ]
+      }
+    };
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      ...keyboard
+    });
+  } catch (error) {
+    console.error('خطأ في عرض الفئات المطورة:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في فتح الفئات المطورة.');
+  }
+}
+
+// ========== إصلاح عرض ملفات PDF ==========
+
+async function showEnhancedPDFs(chatId, userId) {
+  try {
+    const pdfs = enhancedAdhkar.pdf_resources || [];
+    
+    if (pdfs.length === 0) {
+      await bot.sendMessage(chatId, '❌ لا توجد ملفات PDF متاحة حالياً.');
+      return;
+    }
+    
+    let message = `📚 *ملفات PDF المتاحة*\n\n`;
+    
+    pdfs.forEach((pdf, index) => {
+      message += `${index + 1}. *${pdf.title}*\n`;
+      if (pdf.description) {
+        message += `   📝 ${pdf.description}\n`;
+      }
+      message += `   🔗 ${pdf.url}\n\n`;
+    });
+    
+    const keyboard = {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📥 تنزيل كل الملفات', callback_data: 'download_all_pdfs' },
+            { text: '📋 مشاركة مع المجموعات', callback_data: 'share_pdfs' }
+          ],
+          [
+            { text: '◀️ العودة', callback_data: 'enhanced_categories' }
+          ]
+        ]
+      }
+    };
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+      ...keyboard
+    });
+  } catch (error) {
+    console.error('خطأ في عرض ملفات PDF:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في عرض ملفات PDF.');
+  }
+}
+
+// ========== إصلاح عرض الروابط الصوتية ==========
+
+async function showEnhancedAudios(chatId, userId) {
+  try {
+    const audios = enhancedAdhkar.audio_resources || [];
+    
+    if (audios.length === 0) {
+      await bot.sendMessage(chatId, '❌ لا توجد روابط صوتية متاحة حالياً.');
+      return;
+    }
+    
+    let message = `🎵 *الروابط الصوتية المتاحة*\n\n`;
+    
+    audios.forEach((audio, index) => {
+      message += `${index + 1}. *${audio.title}*\n`;
+      if (audio.description) {
+        message += `   📝 ${audio.description}\n`;
+      }
+      message += `   🔗 ${audio.url}\n\n`;
+    });
+    
+    const keyboard = {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '🎧 تشغيل عينات', callback_data: 'play_audio_samples' },
+            { text: '📋 مشاركة مع المجموعات', callback_data: 'share_audios' }
+          ],
+          [
+            { text: '◀️ العودة', callback_data: 'enhanced_categories' }
+          ]
+        ]
+      }
+    };
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+      ...keyboard
+    });
+  } catch (error) {
+    console.error('خطأ في عرض الروابط الصوتية:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ في عرض الروابط الصوتية.');
+  }
+}
+
+// ========== إصلاح معالجة رسائل المستخدم ==========
+
+bot.on('message', async (msg) => {
+  try {
+    if (msg.chat.type !== 'private' || !msg.text || msg.text.startsWith('/')) {
+      return;
+    }
+    
+    const userId = msg.from.id.toString();
+    const user = await db.UserSettings.findOne({ userId });
+    
+    if (user && user.adminWizardState) {
+      await handleAdminWizardResponse(msg, user);
+      return;
+    }
+    
+    // معالجة الأوامر النصية الأخرى
+    if (msg.text.toLowerCase().includes('pdf') || msg.text.includes('📄')) {
+      await showEnhancedPDFs(msg.chat.id, userId);
+    } else if (msg.text.toLowerCase().includes('صوت') || msg.text.includes('🎵')) {
+      await showEnhancedAudios(msg.chat.id, userId);
+    }
+    
+  } catch (error) {
+    console.error('خطأ في معالجة رسالة:', error);
   }
 });
 
-async function executeBroadcast(userId, wizard) {
-  const groups = await db.GroupSettings.find({ enabled: true, isActive: true });
-  const totalGroups = groups.length;
-  let sentCount = 0;
-  
-  // إرسال رسالة بدء البث
-  await bot.sendMessage(userId, `🚀 بدء البث لـ ${totalGroups} مجموعة...`);
-  
-  for (const group of groups) {
-    try {
-      switch(wizard.mediaType) {
-        case 'photo':
-          await bot.sendPhoto(group.chatId, wizard.media, {
-            caption: wizard.message,
-            parse_mode: 'Markdown'
-          });
-          break;
-        case 'audio':
-          await bot.sendAudio(group.chatId, wizard.media, {
-            caption: wizard.message,
-            parse_mode: 'Markdown'
-          });
-          break;
-        case 'document':
-          await bot.sendDocument(group.chatId, wizard.media, {
-            caption: wizard.message,
-            parse_mode: 'Markdown'
-          });
-          break;
-        default:
-          await bot.sendMessage(group.chatId, wizard.message, {
-            parse_mode: 'Markdown'
-          });
-      }
-      
-      sentCount++;
-      
-      // تحديث التقدم كل 10 مجموعات
-      if (sentCount % 10 === 0) {
-        await bot.sendMessage(userId, 
-          `📤 تم إرسال ${sentCount}/${totalGroups} (${Math.round(sentCount/totalGroups*100)}%)`
-        );
-      }
-      
-      // تأخير بين الإرسالات
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-    } catch (error) {
-      console.error(`خطأ في البث للمجموعة ${group.chatId}:`, error.message);
-    }
+// ========== إصلاح الجدولة ==========
+
+function setupEnhancedScheduler() {
+  try {
+    // إيقاف الجدولة القديمة إذا كانت تعمل
+    cron.getTasks().forEach(task => task.stop());
+    
+    // جدولة الأذكار المطورة (دورية - بدون صباح ومساء)
+    cron.schedule('0 */2 * * *', async () => {
+      await sendEnhancedPeriodicAdhkar();
+    }, { timezone: 'Asia/Riyadh' });
+    
+    // جدولة الفئات المطورة المختلفة
+    cron.schedule('0 8,12,16,20 * * *', async () => {
+      await sendRandomEnhancedCategory();
+    }, { timezone: 'Asia/Riyadh' });
+    
+    // جدولة ملفات PDF (مرة أسبوعياً)
+    cron.schedule('0 10 * * 5', async () => {
+      await sendWeeklyPDFResource();
+    }, { timezone: 'Asia/Riyadh' });
+    
+    // جدولة روابط صوتية (يومياً)
+    cron.schedule('0 14 * * *', async () => {
+      await sendDailyAudioResource();
+    }, { timezone: 'Asia/Riyadh' });
+    
+    console.log('✅ تم إعداد الجدولة المحسنة بنجاح');
+    
+  } catch (error) {
+    console.error('❌ خطأ في إعداد الجدولة المحسنة:', error);
   }
-  
-  // إرسال تقرير النهاية
-  const successRate = Math.round(sentCount/totalGroups*100);
-  await bot.sendMessage(userId,
-    `✅ *تم الانتهاء من البث*\n\n` +
-    `📊 النتائج:\n` +
-    `• إجمالي المجموعات: ${totalGroups}\n` +
-    `• تم الإرسال بنجاح: ${sentCount}\n` +
-    `• نسبة النجاح: ${successRate}%\n\n` +
-    `⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`,
-    { parse_mode: 'Markdown' }
-  );
-  
-  // حفظ في مجموعة قاعدة البيانات
-  const dbMessage = `📨 *بث مباشر جديد*\n\n` +
-    `👤 المرسل: ${userId}\n` +
-    `📝 الرسالة: ${wizard.message.substring(0, 200)}...\n` +
-    `📤 تم الإرسال لـ: ${sentCount}/${totalGroups}\n` +
-    `✅ النجاح: ${successRate}%`;
-  
-  await saveToDatabaseGroup(dbMessage, 'بث مباشر');
 }
 
-// جدولة البث
-async function showScheduleOptions(chatId, userId) {
-  const scheduled = await db.CustomAdhkar.countDocuments({ 
-    scheduledDate: { $gt: new Date() } 
-  });
-  
-  const keyboard = {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: '📅 جدولة ذكر', callback_data: 'schedule_single' },
-          { text: '🔄 جدولة متكررة', callback_data: 'schedule_recurring' }
-        ],
-        [
-          { text: `📋 الجدول (${scheduled})`, callback_data: 'view_schedule' },
-          { text: '🗑️ حذف مجدول', callback_data: 'delete_schedule' }
-        ],
-        [
-          { text: '◀️ عودة', callback_data: 'back_to_dev' }
-        ]
-      ]
+// إرسال أذكار مطورة دورية (بدون صباح ومساء)
+async function sendEnhancedPeriodicAdhkar() {
+  try {
+    const groups = await db.GroupSettings.find({ 
+      isActive: true,
+      enabled: true,
+      'settings.periodicEnhancedAdhkar': true 
+    });
+    
+    // جمع الأذكار من الفئات المطورة فقط
+    const enhancedCategories = Object.values(enhancedAdhkar.categories || {});
+    const allEnhancedAdhkar = [];
+    
+    enhancedCategories.forEach(category => {
+      if (category.items) {
+        category.items.forEach(item => {
+          allEnhancedAdhkar.push({
+            ...item,
+            categoryName: category.name,
+            categoryId: category.id
+          });
+        });
+      }
+    });
+    
+    if (allEnhancedAdhkar.length === 0) return;
+    
+    const randomAdhkar = allEnhancedAdhkar[Math.floor(Math.random() * allEnhancedAdhkar.length)];
+    
+    for (const group of groups) {
+      try {
+        let message = `🌟 *${randomAdhkar.categoryName}*\n\n${randomAdhkar.text}\n\n`;
+        
+        if (randomAdhkar.source) {
+          message += `📖 ${randomAdhkar.source}\n\n`;
+        }
+        
+        message += `✨ @${bot.options.username}`;
+        
+        // إرسال مع الوسائط إذا كانت متوفرة
+        if (randomAdhkar.audio && group.settings.includeAudio) {
+          try {
+            await bot.sendAudio(group.chatId, randomAdhkar.audio, {
+              caption: message,
+              parse_mode: 'Markdown'
+            });
+            continue;
+          } catch (error) {
+            console.error('خطأ في إرسال الصوت:', error);
+          }
+        }
+        
+        if (randomAdhkar.pdf && group.settings.includePDF) {
+          try {
+            await bot.sendDocument(group.chatId, randomAdhkar.pdf, {
+              caption: message,
+              parse_mode: 'Markdown'
+            });
+            continue;
+          } catch (error) {
+            console.error('خطأ في إرسال PDF:', error);
+          }
+        }
+        
+        // إرسال نصي فقط
+        await bot.sendMessage(group.chat.id, message, { parse_mode: 'Markdown' });
+        
+      } catch (error) {
+        console.error(`خطأ في إرسال ذكر مطور للمجموعة ${group.chatId}:`, error.message);
+      }
     }
-  };
-  
-  await bot.sendMessage(chatId,
-    `⏰ *جدولة البث*\n\n` +
-    `• المهام المجدولة: ${scheduled}\n\n` +
-    `اختر نوع الجدولة:`,
-    { parse_mode: 'Markdown', ...keyboard }
-  );
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال الأذكار المطورة:', error);
+  }
 }
 
-// إدارة المجموعات
-async function showGroupManagement(chatId, userId) {
-  const activeGroups = await db.GroupSettings.countDocuments({ isActive: true });
-  const totalGroups = await db.GroupSettings.countDocuments();
-  
-  const keyboard = {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: `👥 المجموعات النشطة (${activeGroups})`, callback_data: 'view_active_groups' },
-          { text: `📊 إحصائيات المجموعات`, callback_data: 'groups_stats' }
-        ],
-        [
-          { text: '🔍 بحث عن مجموعة', callback_data: 'search_group' },
-          { text: '📋 تصدير البيانات', callback_data: 'export_groups' }
-        ],
-        [
-          { text: '⚙️ إعدادات جماعية', callback_data: 'bulk_settings' },
-          { text: '📨 إرسال جماعي', callback_data: 'bulk_send' }
-        ],
-        [
-          { text: '◀️ عودة', callback_data: 'back_to_dev' }
-        ]
-      ]
+// إرسال فئة مطورة عشوائية
+async function sendRandomEnhancedCategory() {
+  try {
+    const groups = await db.GroupSettings.find({ 
+      isActive: true,
+      enabled: true 
+    });
+    
+    const categories = Object.entries(enhancedAdhkar.categories || {});
+    if (categories.length === 0) return;
+    
+    const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+    const [categoryId, category] = randomCategory;
+    
+    if (!category.items || category.items.length === 0) return;
+    
+    const randomItem = category.items[Math.floor(Math.random() * category.items.length)];
+    
+    for (const group of groups) {
+      // التحقق من تفعيل الفئة في إعدادات المجموعة
+      if (group.settings.enhancedCategories && 
+          group.settings.enhancedCategories[categoryId] !== false) {
+        
+        try {
+          let message = `📂 *${category.name}*\n\n${randomItem.text}\n\n`;
+          
+          if (randomItem.source) {
+            message += `📖 ${randomItem.source}\n\n`;
+          }
+          
+          message += `✨ @${bot.options.username}`;
+          
+          await bot.sendMessage(group.chatId, message, { parse_mode: 'Markdown' });
+          
+        } catch (error) {
+          console.error(`خطأ في إرسال فئة للمجموعة ${group.chatId}:`, error.message);
+        }
+      }
     }
-  };
-  
-  await bot.sendMessage(chatId,
-    `👥 *إدارة المجموعات*\n\n` +
-    `• إجمالي المجموعات: ${totalGroups}\n` +
-    `• مجموعات نشطة: ${activeGroups}\n` +
-    `• نسبة النشاط: ${Math.round(activeGroups/totalGroups*100)}%\n\n` +
-    `اختر الإجراء المطلوب:`,
-    { parse_mode: 'Markdown', ...keyboard }
-  );
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال الفئة المطورة:', error);
+  }
 }
 
-// إحصائيات مفصلة
+// إرسال مورد PDF أسبوعي
+async function sendWeeklyPDFResource() {
+  try {
+    const groups = await db.GroupSettings.find({ 
+      isActive: true,
+      enabled: true,
+      'settings.includePDF': true 
+    });
+    
+    const pdfs = enhancedAdhkar.pdf_resources || [];
+    if (pdfs.length === 0) return;
+    
+    const randomPdf = pdfs[Math.floor(Math.random() * pdfs.length)];
+    
+    for (const group of groups) {
+      try {
+        const message = `📚 *مورد أسبوعي - ملف PDF*\n\n` +
+          `*${randomPdf.title}*\n` +
+          (randomPdf.description ? `${randomPdf.description}\n\n` : '\n') +
+          `✨ @${bot.options.username}`;
+        
+        await bot.sendMessage(group.chatId, message, { 
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true 
+        });
+        
+      } catch (error) {
+        console.error(`خطأ في إرسال PDF للمجموعة ${group.chatId}:`, error.message);
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال PDF أسبوعي:', error);
+  }
+}
+
+// إرسال مورد صوتي يومي
+async function sendDailyAudioResource() {
+  try {
+    const groups = await db.GroupSettings.find({ 
+      isActive: true,
+      enabled: true,
+      'settings.includeAudio': true 
+    });
+    
+    const audios = enhancedAdhkar.audio_resources || [];
+    if (audios.length === 0) return;
+    
+    const randomAudio = audios[Math.floor(Math.random() * audios.length)];
+    
+    for (const group of groups) {
+      try {
+        const message = `🎵 *مورد يومي - رابط صوتي*\n\n` +
+          `*${randomAudio.title}*\n` +
+          (randomAudio.description ? `${randomAudio.description}\n\n` : '\n') +
+          `✨ @${bot.options.username}`;
+        
+        await bot.sendMessage(group.chatId, message, { 
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true 
+        });
+        
+      } catch (error) {
+        console.error(`خطأ في إرسال رابط صوتي للمجموعة ${group.chatId}:`, error.message);
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ خطأ في إرسال رابط صوتي يومي:', error);
+  }
+}
+
+// ========== إصلاح الإحصائيات ==========
+
 async function getDetailedStatistics() {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterdayStart = new Date(todayStart - 24*60*60*1000);
-  
-  const [
-    activeGroups,
-    totalGroups,
-    todayMessages,
-    yesterdayMessages,
-    totalAdhkar,
-    pendingAdhkar,
-    lastActivityLog
-  ] = await Promise.all([
-    db.GroupSettings.countDocuments({ isActive: true }),
-    db.GroupSettings.countDocuments(),
-    db.ReminderLog.countDocuments({ sentAt: { $gte: todayStart } }),
-    db.ReminderLog.countDocuments({ sentAt: { $gte: yesterdayStart, $lt: todayStart } }),
-    db.CustomAdhkar.countDocuments(),
-    db.CustomAdhkar.countDocuments({ approved: false }),
-    db.ReminderLog.findOne().sort({ sentAt: -1 })
-  ]);
-  
-  const successRate = todayMessages > 0 ? 
-    Math.round((todayMessages / (activeGroups * 5)) * 100) : 0;
-  
-  return {
-    activeGroups,
-    totalGroups,
-    todayMessages,
-    yesterdayMessages,
-    totalAdhkar,
-    pendingAdhkar,
-    successRate: Math.min(successRate, 100),
-    lastActivity: lastActivityLog ? 
-      `${lastActivityLog.sentAt.toLocaleString('ar-SA')}\n${lastActivityLog.reminderType}` : 
-      'لا يوجد نشاط'
-  };
+  try {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    const [
+      activeGroups,
+      totalGroups,
+      totalUsers,
+      totalAdhkar,
+      pendingAdhkar,
+      totalMedia,
+      totalCategories,
+      todayReminders,
+      lastActivityLog,
+      enhancedCategoriesCount
+    ] = await Promise.all([
+      db.GroupSettings.countDocuments({ isActive: true }),
+      db.GroupSettings.countDocuments(),
+      db.UserSettings.countDocuments(),
+      db.CustomAdhkar.countDocuments(),
+      db.CustomAdhkar.countDocuments({ approved: false }),
+      db.MediaLibrary.countDocuments(),
+      db.Category.countDocuments(),
+      db.ReminderLog.countDocuments({ sentAt: { $gte: todayStart } }),
+      db.ReminderLog.findOne().sort({ sentAt: -1 }),
+      db.Category.countDocuments({ isEnhanced: true })
+    ]);
+    
+    const successRate = activeGroups > 0 ? 
+      Math.round((todayReminders / (activeGroups * 3)) * 100) : 0;
+    
+    return {
+      activeGroups,
+      totalGroups,
+      totalUsers,
+      totalAdhkar,
+      pendingAdhkar,
+      totalMedia,
+      totalCategories,
+      todayReminders,
+      enhancedCategoriesCount,
+      successRate: Math.min(successRate, 100),
+      lastActivity: lastActivityLog ? 
+        `${lastActivityLog.sentAt.toLocaleString('ar-SA')} - ${lastActivityLog.reminderType}` : 
+        'لا يوجد نشاط'
+    };
+  } catch (error) {
+    console.error('خطأ في حساب الإحصائيات:', error);
+    return {
+      activeGroups: 0,
+      totalGroups: 0,
+      totalUsers: 0,
+      totalAdhkar: 0,
+      pendingAdhkar: 0,
+      totalMedia: 0,
+      totalCategories: 0,
+      todayReminders: 0,
+      enhancedCategoriesCount: 0,
+      successRate: 0,
+      lastActivity: 'غير متوفر'
+    };
+  }
 }
 
-// تسجيل المستخدم
+// ========== إصلاح تسجيل المستخدم ==========
+
 async function registerUser(userInfo) {
   try {
     const userId = userInfo.id.toString();
@@ -1049,428 +1376,144 @@ async function registerUser(userInfo) {
   }
 }
 
-// تسجيل المجموعة تلقائياً
-bot.on('message', async (msg) => {
-  if (msg.chat.type === 'private' || msg.text?.startsWith('/')) {
-    return;
-  }
-  
-  const chatId = msg.chat.id.toString();
+// ========== إصلاح معالجة الأمر /start ==========
+
+bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const isPrivate = msg.chat.type === 'private';
   
   try {
-    let group = await db.GroupSettings.findOne({ chatId });
+    // تسجيل المستخدم
+    await registerUser(msg.from);
     
-    if (!group) {
-      // الحصول على معلومات المجموعة
-      const chat = await bot.getChat(chatId);
+    if (isPrivate) {
+      const user = await db.UserSettings.findOne({ userId: userId.toString() });
+      const isAdmin = user ? (user.isDeveloper || user.isSuperAdmin) : (userId.toString() === DEVELOPER_ID);
       
-      group = new db.GroupSettings({
-        chatId,
-        chatTitle: chat.title,
-        chatType: chat.type,
-        enabled: true,
-        addedBy: msg.from?.id.toString() || 'auto',
-        addedDate: new Date(),
-        isActive: true
-      });
-      
-      await group.save();
-      
-      // إرسال رسالة ترحيب
-      await bot.sendMessage(chatId,
-        `🕌 *مرحباً بكم في بوت الأذكار الإسلامي*\n\n` +
-        `✅ تم تفعيل البوت تلقائياً في مجموعتك\n\n` +
-        `*المميزات:*\n` +
-        `• أذكار الصباح والمساء\n` +
-        `• تذكير سورة الكهف يوم الجمعة\n` +
-        `• المناسبات الإسلامية\n` +
-        `• ملفات صوتية وPDF\n\n` +
-        `⚙️ للإعدادات: أرسل /start في الخاص\n\n` +
-        `📚 ${DEVELOPER_USERNAME}`,
-        { parse_mode: 'Markdown' }
-      );
-      
-      // إعلام المطور
-      await bot.sendMessage(DEVELOPER_ID,
-        `🆕 *مجموعة جديدة*\n\n` +
-        `📝 الاسم: ${chat.title}\n` +
-        `🆔 المعرف: ${chatId}\n` +
-        `👤 المضيف: ${msg.from?.username || 'غير معروف'}\n` +
-        `📊 الإجمالي: ${await db.GroupSettings.countDocuments()}`,
-        { parse_mode: 'Markdown' }
-      );
+      if (isAdmin) {
+        await showDeveloperPanel(chatId, userId);
+      } else {
+        await bot.sendMessage(chatId,
+          `🕌 *مرحباً بك في بوت الأذكار الإسلامي*\n\n` +
+          `هذا البوت مخصص للمشرفين والمطورين.\n` +
+          `أضف البوت إلى مجموعتك ثم أرسل /start هنا لفتح لوحة التحكم.\n\n` +
+          `👤 المطور: ${DEVELOPER_USERNAME}`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+    } else {
+      // في المجموعات: عرض خيارات للمشرفين
+      try {
+        const chatMember = await bot.getChatMember(chatId, userId);
+        if (['administrator', 'creator'].includes(chatMember.status)) {
+          const keyboard = {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '⚙️ فتح لوحة التحكم', url: `https://t.me/${bot.options.username}?start=admin` },
+                  { text: '📊 إدارة المجموعة', callback_data: `group_admin_${chatId}` }
+                ]
+              ]
+            }
+          };
+          
+          await bot.sendMessage(chatId, 
+            `👋 *مرحباً ${msg.from.first_name}*\n\n` +
+            `لإدارة إعدادات البوت في هذه المجموعة، اضغط على الزر أدناه:`, 
+            { parse_mode: 'Markdown', ...keyboard }
+          );
+        }
+      } catch (error) {
+        console.error('خطأ في التحقق من الصلاحيات:', error);
+      }
     }
   } catch (error) {
-    console.error('خطأ في تسجيل المجموعة:', error);
+    console.error('خطأ في معالجة /start:', error);
+    await bot.sendMessage(chatId, '❌ حدث خطأ. حاول مرة أخرى.');
   }
 });
 
-// جدولة المهام الأساسية
-function scheduleBaseTasks() {
-  // أذكار الصباح
-  cron.schedule('0 6 * * *', async () => {
-    await sendScheduledAdhkar('morning');
-  }, { timezone: 'Asia/Riyadh' });
-  
-  // أذكار المساء
-  cron.schedule('0 18 * * *', async () => {
-    await sendScheduledAdhkar('evening');
-  }, { timezone: 'Asia/Riyadh' });
-  
-  // سورة الكهف يوم الجمعة
-  cron.schedule('0 11 * * 5', async () => {
-    await sendScheduledAdhkar('friday');
-  }, { timezone: 'Asia/Riyadh' });
-  
-  // الأذكار الدورية
-  cron.schedule('*/30 * * * *', async () => {
-    await sendPeriodicRandomAdhkar();
-  }, { timezone: 'Asia/Riyadh' });
-  
-  // التحقق من المناسبات اليومية
-  cron.schedule('0 0 * * *', async () => {
-    await checkIslamicEvents();
-  }, { timezone: 'Asia/Riyadh' });
-  
-  // التحقق من الأذكار المجدولة
-  cron.schedule('* * * * *', async () => {
-    await checkScheduledAdhkar();
-  }, { timezone: 'Asia/Riyadh' });
-}
+// ========== إصلاح معالجة الأوامر الأخرى ==========
 
-// إرسال أذكار مجدولة
-async function sendScheduledAdhkar(category) {
-  const groups = await db.GroupSettings.find({ 
-    isActive: true,
-    enabled: true,
-    [`settings.${category}Adhkar`]: true 
-  });
+bot.onText(/\/dev/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
   
-  const categoryData = islamicData.categories[category];
-  if (!categoryData || !categoryData.items || categoryData.items.length === 0) {
-    return;
-  }
-  
-  const randomItem = categoryData.items[
-    Math.floor(Math.random() * categoryData.items.length)
-  ];
-  
-  for (const group of groups) {
-    try {
-      let message = `🕌 *${categoryData.name}*\n\n${randomItem.text}\n\n`;
-      
-      if (randomItem.source) {
-        message += `📖 ${randomItem.source}\n\n`;
-      }
-      
-      message += `✨ @${bot.options.username}`;
-      
-      // إرسال مع الوسائط
-      if (randomItem.audio && group.settings.includeAudio) {
-        try {
-          await bot.sendAudio(group.chatId, randomItem.audio, {
-            caption: message,
-            parse_mode: 'Markdown'
-          });
-          continue;
-        } catch (error) {
-          console.error('خطأ في إرسال الصوت:', error);
-        }
-      }
-      
-      if (randomItem.pdf && group.settings.includePDF) {
-        try {
-          await bot.sendDocument(group.chatId, randomItem.pdf, {
-            caption: message,
-            parse_mode: 'Markdown'
-          });
-          continue;
-        } catch (error) {
-          console.error('خطأ في إرسال PDF:', error);
-        }
-      }
-      
-      // إرسال نصي
-      await bot.sendMessage(group.chatId, message, { parse_mode: 'Markdown' });
-      
-      // تحديث العداد
-      group.reminderCount += 1;
-      group.lastReminderSent = new Date();
-      await group.save();
-      
-    } catch (error) {
-      console.error(`خطأ في إرسال ${category} للمجموعة ${group.chatId}:`, error.message);
-    }
-  }
-}
-
-// إرسال أذكار دورية عشوائية
-async function sendPeriodicRandomAdhkar() {
-  const groups = await db.GroupSettings.find({ 
-    isActive: true,
-    enabled: true,
-    'settings.periodicAdhkar': true 
-  });
-  
-  // جمع كل الأذكار من جميع الفئات
-  const allAdhkar = [];
-  Object.values(islamicData.categories).forEach(category => {
-    if (category.items) {
-      category.items.forEach(item => {
-        allAdhkar.push({
-          ...item,
-          categoryName: category.name
-        });
-      });
-    }
-  });
-  
-  if (allAdhkar.length === 0) return;
-  
-  const randomAdhkar = allAdhkar[Math.floor(Math.random() * allAdhkar.length)];
-  
-  for (const group of groups) {
-    try {
-      const message = `🕌 *ذكر دوري*\n\n` +
-        `${randomAdhkar.text}\n\n` +
-        `📂 ${randomAdhkar.categoryName}\n` +
-        (randomAdhkar.source ? `📖 ${randomAdhkar.source}\n\n` : '\n') +
-        `✨ @${bot.options.username}`;
-      
-      await bot.sendMessage(group.chatId, message, { parse_mode: 'Markdown' });
-      
-    } catch (error) {
-      console.error(`خطأ في إرسال ذكر دوري للمجموعة ${group.chatId}:`, error.message);
-    }
-  }
-}
-
-// التحقق من الأذكار المجدولة
-async function checkScheduledAdhkar() {
-  const now = new Date();
-  const scheduledAdhkar = await db.CustomAdhkar.find({
-    scheduledDate: { $lte: now },
-    approved: true,
-    sentCount: 0
-  });
-  
-  for (const adhkar of scheduledAdhkar) {
-    await broadcastCustomAdhkar(adhkar);
-    adhkar.scheduledDate = null; // تم الإرسال
-    await adhkar.save();
-  }
-}
-
-// التحقق من المناسبات الإسلامية
-async function checkIslamicEvents() {
-  const today = moment().tz('Asia/Riyadh');
-  const hijriDate = await getHijriDate(today);
-  
-  // رمضان
-  if (hijriDate.month === 9) {
-    await sendRamadanEvent(hijriDate.day);
-  }
-  
-  // يوم عرفة
-  if (hijriDate.month === 12 && hijriDate.day === 9) {
-    await sendArafatEvent();
-  }
-  
-  // الأعياد
-  if (hijriDate.month === 10 && hijriDate.day === 1) {
-    await sendEidEvent('الفطر');
-  }
-  
-  if (hijriDate.month === 12 && hijriDate.day === 10) {
-    await sendEidEvent('الأضحى');
-  }
-  
-  // عاشوراء
-  if (hijriDate.month === 1 && hijriDate.day === 10) {
-    await sendAshuraEvent();
-  }
-}
-
-async function sendRamadanEvent(day) {
-  const message = `🌙 *ليلة ${day} من رمضان*\n\n` +
-    `اللهم بلغنا رمضان وأعنا على الصيام والقيام\n\n` +
-    `✨ @${bot.options.username}`;
-  
-  await broadcastToAllGroups(message, { parse_mode: 'Markdown' });
-}
-
-async function sendArafatEvent() {
-  const message = `🕋 *يوم عرفة*\n\n` +
-    `خير الدعاء دعاء يوم عرفة\n` +
-    `لا إله إلا الله وحده لا شريك له\n\n` +
-    `✨ @${bot.options.username}`;
-  
-  await broadcastToAllGroups(message, { parse_mode: 'Markdown' });
-}
-
-async function sendEidEvent(eidType) {
-  const message = `🎉 *عيد ${eidType} مبارك*\n\n` +
-    `تقبل الله منا ومنكم صالح الأعمال\n` +
-    `كل عام وأنتم بخير\n\n` +
-    `✨ @${bot.options.username}`;
-  
-  await broadcastToAllGroups(message, { parse_mode: 'Markdown' });
-  
-  // إرسال تكبيرات صوتية
-  const takbirAudio = 'https://server.islamic.com/audio/eid/takbeerat.mp3';
-  const groups = await db.GroupSettings.find({ 
-    isActive: true,
-    enabled: true,
-    'settings.takbiratAudio': true 
-  });
-  
-  for (const group of groups) {
-    try {
-      await bot.sendAudio(group.chatId, takbirAudio, {
-        caption: 'تكبيرات العيد 🎉',
-        parse_mode: 'Markdown'
-      });
-    } catch (error) {
-      console.error(`خطأ في إرسال تكبيرات للمجموعة ${group.chatId}:`, error);
-    }
-  }
-}
-
-async function sendAshuraEvent() {
-  const message = `📅 *يوم عاشوراء*\n\n` +
-    `صيام يوم عاشوراء يكفر سنة ماضية\n\n` +
-    `✨ @${bot.options.username}`;
-  
-  await broadcastToAllGroups(message, { parse_mode: 'Markdown' });
-}
-
-// الحصول على التاريخ الهجري
-async function getHijriDate(gregorianDate) {
-  try {
-    const dateStr = gregorianDate.format('DD-MM-YYYY');
-    const response = await axios.get(`http://api.aladhan.com/v1/gToH/${dateStr}`);
-    return response.data.data.hijri;
-  } catch (error) {
-    console.error('خطأ في الحصول على التاريخ الهجري:', error);
-    return { day: 1, month: 1, year: 1445 };
-  }
-}
-
-// أمر المساعدة
-bot.onText(/\/help/, (msg) => {
-  const helpMessage = `🕌 *مساعدة - بوت الأذكار الإسلامي*\n\n` +
-    `*الأوامر:*\n` +
-    `/start - لوحة التحكم\n` +
-    `/help - هذه الرسالة\n` +
-    `/adhkar - أذكار عشوائية\n` +
-    `/quran - آية عشوائية\n` +
-    `/pdf - روابط PDF\n` +
-    `/audio - روابط صوتية\n\n` +
-    `*المطور:* ${DEVELOPER_USERNAME}\n` +
-    `*الدعم:* ${ADMIN_GROUP_ID}`;
-  
-  bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
-});
-
-// أمر إرسال أذكار عشوائية
-bot.onText(/\/adhkar/, async (msg) => {
-  const allAdhkar = [];
-  Object.values(islamicData.categories).forEach(category => {
-    if (category.items) {
-      category.items.forEach(item => {
-        allAdhkar.push({
-          ...item,
-          categoryName: category.name
-        });
-      });
-    }
-  });
-  
-  if (allAdhkar.length > 0) {
-    const randomAdhkar = allAdhkar[Math.floor(Math.random() * allAdhkar.length)];
-    const message = `🕌 *${randomAdhkar.categoryName}*\n\n` +
-      `${randomAdhkar.text}\n\n` +
-      (randomAdhkar.source ? `📖 ${randomAdhkar.source}\n\n` : '') +
-      `✨ @${bot.options.username}`;
-    
-    await bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
+  if (userId.toString() === DEVELOPER_ID) {
+    await showDeveloperPanel(chatId, userId);
   }
 });
 
-// أمر روابط PDF
-bot.onText(/\/pdf/, async (msg) => {
-  const pdfList = islamicData.resources?.pdf_files || [];
+bot.onText(/\/enhanced/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
   
-  let message = `📚 *روابط PDF المتاحة*\n\n`;
-  
-  pdfList.forEach((pdf, index) => {
-    message += `${index + 1}. ${pdf.name}\n`;
-    message += `   ${pdf.url}\n\n`;
-  });
-  
-  message += `✨ @${bot.options.username}`;
-  
-  await bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
-});
-
-// أمر روابط صوتية
-bot.onText(/\/audio/, async (msg) => {
-  const audioList = islamicData.quran_audio || [];
-  
-  let message = `🎵 *روابط قرآن صوتية*\n\n`;
-  
-  audioList.slice(0, 10).forEach((audio, index) => {
-    message += `${index + 1}. سورة ${audio.surah}\n`;
-    message += `   القارئ: ${audio.reciter}\n`;
-    message += `   ${audio.url}\n\n`;
-  });
-  
-  if (audioList.length > 10) {
-    message += `*و ${audioList.length - 10} سورة أخرى...*\n\n`;
+  const user = await db.UserSettings.findOne({ userId: userId.toString() });
+  if (user && (user.isDeveloper || user.isSuperAdmin)) {
+    await showEnhancedCategories(chatId, userId);
   }
-  
-  message += `✨ @${bot.options.username}`;
-  
-  await bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
 });
 
-// بدء التشغيل
-async function startBot() {
-  console.log('🚀 بدء تشغيل البوت الإسلامي v2.0...');
+bot.onText(/\/pdfs/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  const user = await db.UserSettings.findOne({ userId: userId.toString() });
+  if (user && (user.isDeveloper || user.isSuperAdmin)) {
+    await showEnhancedPDFs(chatId, userId);
+  }
+});
+
+bot.onText(/\/audios/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  const user = await db.UserSettings.findOne({ userId: userId.toString() });
+  if (user && (user.isDeveloper || user.isSuperAdmin)) {
+    await showEnhancedAudios(chatId, userId);
+  }
+});
+
+// ========== بدء البوت المحسن ==========
+
+async function startEnhancedBot() {
+  console.log('🚀 بدء تشغيل البوت الإسلامي المطور v2.1...');
   
   try {
     // التحقق من اتصال قاعدة البيانات
     await mongoose.connection.db.admin().ping();
     console.log('✅ تم الاتصال بقاعدة البيانات');
     
-    // جدولة المهام
-    scheduleBaseTasks();
+    // إعداد الجدولة المحسنة
+    setupEnhancedScheduler();
     
-    // التحقق من المناسبات فور التشغيل
-    setTimeout(() => checkIslamicEvents(), 5000);
+    // إنشاء فئات مطورة إذا لم تكن موجودة
+    await setupEnhancedCategories();
     
-    console.log('✅ البوت يعمل بنجاح!');
+    console.log('✅ البوت المطور يعمل بنجاح!');
     console.log(`👤 المطور: ${DEVELOPER_USERNAME}`);
     console.log(`📊 قاعدة البيانات: ${DATABASE_GROUP_ID}`);
     
     // إعلام المطور
     const stats = await getDetailedStatistics();
     await bot.sendMessage(DEVELOPER_ID,
-      `🤖 *تم تشغيل البوت v2.0*\n\n` +
+      `🤖 *تم تشغيل البوت المطور v2.1*\n\n` +
       `🕒 ${new Date().toLocaleString('ar-SA')}\n` +
-      `📊 المجموعات: ${stats.activeGroups}\n` +
-      `💾 الإصدار: 2.0 - الوسائط الكاملة\n` +
+      `📊 المجموعات النشطة: ${stats.activeGroups}\n` +
+      `🌟 الفئات المطورة: ${Object.keys(enhancedAdhkar.categories || {}).length}\n` +
+      `💾 الإصدار: 2.1 - نظام محتوى متكامل\n` +
       `✅ الحالة: 🟢 نشط`,
       { parse_mode: 'Markdown' }
     );
     
   } catch (error) {
-    console.error('❌ خطأ في تشغيل البوت:', error);
+    console.error('❌ خطأ في تشغيل البوت المطور:', error);
     
     // إعلام المطور بالخطأ
     try {
       await bot.sendMessage(DEVELOPER_ID,
-        `❌ *خطأ في تشغيل البوت*\n\n` +
+        `❌ *خطأ في تشغيل البوت المطور*\n\n` +
         `🕒 ${new Date().toLocaleString('ar-SA')}\n` +
         `📛 الخطأ: ${error.message}\n` +
         `🔧 يرجى التحقق من السيرفر`,
@@ -1482,22 +1525,67 @@ async function startBot() {
   }
 }
 
-// معالجة الأخطاء
+// إعداد الفئات المطورة في قاعدة البيانات
+async function setupEnhancedCategories() {
+  try {
+    const categories = enhancedAdhkar.categories || {};
+    
+    for (const [categoryId, categoryData] of Object.entries(categories)) {
+      const existingCategory = await db.Category.findOne({ categoryId });
+      
+      if (!existingCategory) {
+        const newCategory = new db.Category({
+          categoryId,
+          name: categoryData.name,
+          description: `فئة مطورة - ${categoryData.name}`,
+          icon: '🌟',
+          enabled: true,
+          isEnhanced: true,
+          items: categoryData.items || []
+        });
+        
+        await newCategory.save();
+        console.log(`✅ تم إنشاء الفئة المطورة: ${categoryData.name}`);
+      }
+    }
+    
+    console.log('✅ تم إعداد الفئات المطورة في قاعدة البيانات');
+  } catch (error) {
+    console.error('❌ خطأ في إعداد الفئات المطورة:', error);
+  }
+}
+
+// ========== معالجة الأخطاء المحسنة ==========
+
 process.on('uncaughtException', (error) => {
   console.error('⚠️ خطأ غير متوقع:', error);
-  // محاولة إعادة التشغيل بعد 10 ثواني
+  // إرسال تقرير الخطأ للمطور
+  try {
+    bot.sendMessage(DEVELOPER_ID,
+      `⚠️ *خطأ غير متوقع في البوت*\n\n` +
+      `🕒 ${new Date().toLocaleString('ar-SA')}\n` +
+      `📛 الخطأ: ${error.message}\n` +
+      `📋 المكدس: ${error.stack.substring(0, 500)}...`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (e) {
+    console.error('تعذر إرسال تقرير الخطأ:', e);
+  }
+  
+  // محاولة إعادة التشغيل بعد 30 ثانية
   setTimeout(() => {
-    console.log('🔄 إعادة تشغيل البوت...');
+    console.log('🔄 محاولة إعادة تشغيل البوت...');
     process.exit(1);
-  }, 10000);
+  }, 30000);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️ وعد مرفوض:', reason);
 });
 
-// بدء البوت
-startBot();
+// ========== بدء البوت ==========
+
+startEnhancedBot();
 
 // تصدير الدوال للاختبارات
 module.exports = {
@@ -1505,5 +1593,9 @@ module.exports = {
   db,
   broadcastToAllGroups,
   saveToDatabaseGroup,
-  getDetailedStatistics
+  getDetailedStatistics,
+  showDeveloperPanel,
+  showEnhancedCategories,
+  showEnhancedPDFs,
+  showEnhancedAudios
 };
