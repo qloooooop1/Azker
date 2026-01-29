@@ -17,3 +17,7 @@ services:
         value: production
     healthCheckPath: /health
     autoDeploy: true
+    disk:
+      name: adkar-data
+      mountPath: /data
+      sizeGB: 1
