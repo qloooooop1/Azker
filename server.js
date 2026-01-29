@@ -583,6 +583,82 @@ setTimeout(() => {
 }, SCHEDULER_STARTUP_DELAY);
 
 // ========== معالجة أوامر البوت ==========
+// معالجة إضافة البوت للمجموعة (auto-activation)
+bot.on('my_chat_member', async (update) => {
+    try {
+        const chatId = update.chat.id;
+        const chatType = update.chat.type;
+        const newStatus = update.new_chat_member.status;
+        const oldStatus = update.old_chat_member.status;
+        
+        // التحقق من أن البوت تمت إضافته للمجموعة
+        if ((chatType === 'group' || chatType === 'supergroup') && 
+            (oldStatus === 'left' || oldStatus === 'kicked') && 
+            (newStatus === 'member' || newStatus === 'administrator' || newStatus === 'restricted')) {
+            
+            const title = update.chat.title;
+            const adminId = update.from.id;
+            
+            console.log(`🆕 تمت إضافة البوت للمجموعة: ${title} (${chatId})`);
+            
+            // حفظ المجموعة في قاعدة البيانات
+            db.run(`INSERT OR REPLACE INTO groups (chat_id, title, admin_id, bot_enabled) VALUES (?, ?, ?, ?)`, 
+                [chatId, title, adminId, 1], async (err) => {
+                    if (err) {
+                        console.error('❌ خطأ في حفظ المجموعة:', err);
+                        return;
+                    }
+                    
+                    try {
+                        // محاولة التفعيل التلقائي
+                        const welcomeMsg = `🕌 *مرحباً بكم في ${title}* 🕌\n\n` +
+                            `✅ *تم تفعيل بوت الأذكار تلقائياً!*\n` +
+                            `سيبدأ البوت بنشر الأذكار حسب الجدولة المحددة.\n\n` +
+                            `*الأوامر المتاحة:*\n` +
+                            `/activate - تفعيل البوت\n` +
+                            `/enable - تفعيل البوت\n` +
+                            `/disable - إيقاف البوت\n` +
+                            `/status - حالة البوت\n` +
+                            `/help - المساعدة\n\n` +
+                            `📊 *الأقسام المتاحة:*\n`;
+                        
+                        db.all("SELECT name, icon FROM categories WHERE is_active = 1 ORDER BY sort_order", async (err, categories) => {
+                            let categoriesMsg = welcomeMsg;
+                            if (categories && categories.length > 0) {
+                                categories.forEach(cat => {
+                                    categoriesMsg += `${cat.icon} ${cat.name}\n`;
+                                });
+                            }
+                            
+                            await bot.sendMessage(chatId, categoriesMsg, { parse_mode: 'Markdown' });
+                            console.log(`✅ تم تفعيل البوت تلقائياً في المجموعة: ${title} (${chatId})`);
+                        });
+                        
+                    } catch (error) {
+                        // فشل التفعيل التلقائي - إرسال رسالة طلب التفعيل اليدوي
+                        console.error('⚠️ فشل التفعيل التلقائي في المجموعة:', chatId, error.message);
+                        
+                        try {
+                            const manualActivationMsg = `🕌 *مرحباً بكم!* 🕌\n\n` +
+                                `⚠️ يرجى تفعيل بوت الأذكار باستخدام الأمر:\n` +
+                                `/activate\n\n` +
+                                `أو يمكنك استخدام:\n` +
+                                `/enable\n\n` +
+                                `*ملاحظة:* يجب أن تكون مشرفاً في المجموعة لتفعيل البوت.`;
+                            
+                            await bot.sendMessage(chatId, manualActivationMsg, { parse_mode: 'Markdown' });
+                            console.log(`📋 تم إرسال تعليمات التفعيل اليدوي للمجموعة: ${title} (${chatId})`);
+                        } catch (msgError) {
+                            console.error('❌ خطأ في إرسال رسالة التفعيل اليدوي:', msgError.message);
+                        }
+                    }
+                });
+        }
+    } catch (error) {
+        console.error('❌ خطأ في معالجة my_chat_member:', error);
+    }
+});
+
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const chatType = msg.chat.type;
@@ -662,6 +738,7 @@ bot.onText(/\/enable/, async (msg) => {
         db.run(`UPDATE groups SET bot_enabled = 1 WHERE chat_id = ?`, [chatId], async (err) => {
             if (err) {
                 await bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.');
+                console.error('❌ خطأ في تفعيل البوت:', err);
                 return;
             }
 
@@ -669,10 +746,43 @@ bot.onText(/\/enable/, async (msg) => {
                 '✅ *تم تفعيل البوت بنجاح*\nسأبدأ بنشر الأذكار حسب الجدولة المحددة.', 
                 { parse_mode: 'Markdown' }
             );
+            console.log(`✅ تم تفعيل البوت يدوياً في المجموعة: ${chatId}`);
         });
 
     } catch (error) {
         console.error('❌ خطأ في /enable:', error);
+        await bot.sendMessage(chatId, '❌ حدث خطأ، حاول مرة أخرى.');
+    }
+});
+
+// إضافة أمر /activate كبديل لـ /enable
+bot.onText(/\/activate/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    try {
+        const chatMember = await bot.getChatMember(chatId, userId);
+        if (!['creator', 'administrator'].includes(chatMember.status)) {
+            await bot.sendMessage(chatId, '⚠️ هذا الأمر متاح للمشرفين فقط.');
+            return;
+        }
+
+        db.run(`UPDATE groups SET bot_enabled = 1 WHERE chat_id = ?`, [chatId], async (err) => {
+            if (err) {
+                await bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.');
+                console.error('❌ خطأ في تفعيل البوت:', err);
+                return;
+            }
+
+            await bot.sendMessage(chatId, 
+                '✅ *تم تفعيل البوت بنجاح*\nسأبدأ بنشر الأذكار حسب الجدولة المحددة.', 
+                { parse_mode: 'Markdown' }
+            );
+            console.log(`✅ تم تفعيل البوت يدوياً في المجموعة: ${chatId}`);
+        });
+
+    } catch (error) {
+        console.error('❌ خطأ في /activate:', error);
         await bot.sendMessage(chatId, '❌ حدث خطأ، حاول مرة أخرى.');
     }
 });
@@ -691,6 +801,7 @@ bot.onText(/\/disable/, async (msg) => {
         db.run(`UPDATE groups SET bot_enabled = 0 WHERE chat_id = ?`, [chatId], async (err) => {
             if (err) {
                 await bot.sendMessage(chatId, '❌ حدث خطأ في إيقاف البوت.');
+                console.error('❌ خطأ في إيقاف البوت:', err);
                 return;
             }
 
@@ -698,6 +809,7 @@ bot.onText(/\/disable/, async (msg) => {
                 '⏸️ *تم إيقاف البوت مؤقتاً*\nلن يتم نشر أي أذكار حتى إعادة التفعيل.', 
                 { parse_mode: 'Markdown' }
             );
+            console.log(`⏸️ تم إيقاف البوت في المجموعة: ${chatId}`);
         });
 
     } catch (error) {
@@ -731,6 +843,7 @@ bot.onText(/\/status/, async (msg) => {
 bot.onText(/\/help/, (msg) => {
     const helpMsg = `*مركز المساعدة*\n\n` +
         `*أوامر المشرفين:*\n` +
+        `/activate - تفعيل البوت في المجموعة\n` +
         `/enable - تفعيل البوت في المجموعة\n` +
         `/disable - إيقاف البوت مؤقتاً\n` +
         `/status - عرض حالة البوت\n` +
