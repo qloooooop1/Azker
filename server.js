@@ -531,7 +531,7 @@ function scheduleAdkar(adkar) {
         const rule = new schedule.RecurrenceRule();
         rule.hour = hour;
         rule.minute = minute;
-        rule.tz = 'Asia/Riyadh'; // المنطقة الزمنية (يمكن تعديلها حسب الحاجة)
+        rule.tz = process.env.TIMEZONE || 'Asia/Riyadh'; // المنطقة الزمنية (قابلة للتعديل من .env)
         
         const job = schedule.scheduleJob(rule, () => {
             sendScheduledAzkar(adkar.id);
@@ -574,11 +574,13 @@ function loadAndScheduleAllAzkar() {
 }
 
 // بدء الجدولة عند تشغيل الخادم
+// الانتظار للتأكد من اتصال قاعدة البيانات والبوت قبل جدولة الأذكار
+const SCHEDULER_STARTUP_DELAY = parseInt(process.env.SCHEDULER_STARTUP_DELAY || '5000', 10);
 setTimeout(() => {
     if (isPolling) {
         loadAndScheduleAllAzkar();
     }
-}, 5000); // الانتظار 5 ثواني للتأكد من اتصال قاعدة البيانات والبوت
+}, SCHEDULER_STARTUP_DELAY);
 
 // ========== معالجة أوامر البوت ==========
 bot.onText(/\/start/, async (msg) => {
