@@ -86,6 +86,14 @@ function initializeBot() {
         });
         isPolling = true;
         console.log('🤖 بوت التلجرام يعمل...');
+        
+        // الحصول على معلومات البوت لتخزين ID
+        bot.getMe().then((botInfo) => {
+            bot.options.id = botInfo.id;
+            console.log(`✅ تم تحديد معرف البوت: ${botInfo.id} (@${botInfo.username})`);
+        }).catch((error) => {
+            console.error('❌ خطأ في الحصول على معلومات البوت:', error.message);
+        });
     } catch (error) {
         console.error('❌ خطأ في بدء polling:', error.message);
         isPolling = false;
@@ -436,25 +444,25 @@ const scheduledJobs = new Map();
 
 // وظيفة لإرسال الأذكار المجدولة
 async function sendScheduledAzkar(adkarId) {
-    console.log(`📅 تشغيل مهمة مجدولة للذكر رقم ${adkarId}`);
+    console.log(`📅 تشغيل مهمة مجدولة للذكر رقم ${adkarId} - الوقت: ${moment().format('HH:mm')}`);
     
     db.get(`SELECT a.*, c.name as category_name FROM adkar a 
            LEFT JOIN categories c ON a.category_id = c.id 
            WHERE a.id = ? AND a.is_active = 1`, 
         [adkarId], async (err, adkar) => {
             if (err) {
-                console.error(`❌ خطأ في جلب الذكر ${adkarId}:`, err);
+                console.error(`❌ خطأ في جلب الذكر ${adkarId} من Control Panel:`, err);
                 return;
             }
             
             if (!adkar) {
-                console.log(`⚠️ الذكر ${adkarId} غير موجود أو غير مفعل`);
+                console.log(`⚠️ الذكر ${adkarId} غير موجود أو غير مفعل في Control Panel`);
                 return;
             }
             
             // التحقق من الجدولة
             if (!shouldSendToday(adkar)) {
-                console.log(`⏭️ تخطي الذكر ${adkarId} - غير مجدول لهذا اليوم`);
+                console.log(`⏭️ تخطي الذكر ${adkarId} "${adkar.title}" - غير مجدول لهذا اليوم`);
                 return;
             }
             
@@ -468,35 +476,42 @@ async function sendScheduledAzkar(adkarId) {
                     }
                     
                     if (row && row.count > 0) {
-                        console.log(`✓ الذكر ${adkarId} تم إرساله اليوم بالفعل`);
+                        console.log(`✓ الذكر ${adkarId} "${adkar.title}" تم إرساله اليوم بالفعل - تخطي`);
                         return;
                     }
                     
                     // جلب المجموعات النشطة
                     db.all("SELECT chat_id FROM groups WHERE bot_enabled = 1", async (err, groups) => {
                         if (err) {
-                            console.error('❌ خطأ في جلب المجموعات:', err);
+                            console.error('❌ خطأ في جلب المجموعات النشطة:', err);
                             return;
                         }
                         
                         if (!groups || groups.length === 0) {
-                            console.log('⚠️ لا توجد مجموعات نشطة');
+                            console.log('⚠️ لا توجد مجموعات نشطة لنشر الذكر');
                             return;
                         }
                         
-                        console.log(`📤 نشر الذكر "${adkar.title}" إلى ${groups.length} مجموعة`);
+                        console.log(`📤 بدء نشر الذكر "${adkar.title}" (ID: ${adkarId}) إلى ${groups.length} مجموعة نشطة...`);
+                        
+                        let successCount = 0;
+                        let failCount = 0;
                         
                         // إرسال لكل مجموعة
                         for (const group of groups) {
                             try {
                                 await sendAdkarToGroup(group.chat_id, adkar);
-                                console.log(`✓ تم إرسال الذكر إلى المجموعة ${group.chat_id}`);
+                                successCount++;
+                                console.log(`  ✓ نجح الإرسال إلى المجموعة ${group.chat_id} (${successCount}/${groups.length})`);
                                 // تأخير لتجنب الحظر
                                 await new Promise(resolve => setTimeout(resolve, 1000));
                             } catch (error) {
-                                console.error(`❌ خطأ في إرسال الذكر إلى المجموعة ${group.chat_id}:`, error.message);
+                                failCount++;
+                                console.error(`  ✗ فشل الإرسال إلى المجموعة ${group.chat_id}:`, error.message);
                             }
                         }
+                        
+                        console.log(`✅ اكتمل نشر الذكر "${adkar.title}" - نجح: ${successCount}، فشل: ${failCount}`);
                     });
                 });
         });
@@ -510,11 +525,12 @@ function scheduleAdkar(adkar) {
     if (scheduledJobs.has(jobKey)) {
         scheduledJobs.get(jobKey).cancel();
         scheduledJobs.delete(jobKey);
+        console.log(`🔄 إلغاء الجدولة السابقة للذكر ${adkar.id}`);
     }
     
     // عدم جدولة الأذكار غير المفعلة
     if (!adkar.is_active) {
-        console.log(`⏸️ تخطي جدولة الذكر ${adkar.id} - غير مفعل`);
+        console.log(`⏸️ تخطي جدولة الذكر ${adkar.id} "${adkar.title}" - غير مفعل`);
         return;
     }
     
@@ -523,7 +539,7 @@ function scheduleAdkar(adkar) {
         const [hour, minute] = adkar.schedule_time.split(':').map(Number);
         
         if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-            console.error(`❌ وقت جدولة غير صحيح للذكر ${adkar.id}: ${adkar.schedule_time}`);
+            console.error(`❌ وقت جدولة غير صحيح للذكر ${adkar.id} "${adkar.title}": ${adkar.schedule_time}`);
             return;
         }
         
@@ -538,38 +554,50 @@ function scheduleAdkar(adkar) {
         });
         
         scheduledJobs.set(jobKey, job);
-        console.log(`✅ تم جدولة الذكر ${adkar.id} "${adkar.title}" في الساعة ${adkar.schedule_time}`);
+        console.log(`✅ تم جدولة الذكر ${adkar.id} "${adkar.title}" في الساعة ${adkar.schedule_time} (نوع: ${adkar.schedule_type})`);
     } catch (error) {
-        console.error(`❌ خطأ في جدولة الذكر ${adkar.id}:`, error);
+        console.error(`❌ خطأ في جدولة الذكر ${adkar.id} "${adkar.title}":`, error);
     }
 }
 
 // وظيفة لتحميل وجدولة جميع الأذكار
 function loadAndScheduleAllAzkar() {
-    console.log('🔄 تحميل وجدولة جميع الأذكار...');
+    console.log('🔄 تحميل وجدولة جميع الأذكار من Control Panel...');
     
     db.all(`SELECT a.*, c.name as category_name FROM adkar a 
            LEFT JOIN categories c ON a.category_id = c.id 
            WHERE a.is_active = 1`, 
         (err, adkarList) => {
             if (err) {
-                console.error('❌ خطأ في جلب الأذكار:', err);
+                console.error('❌ خطأ في جلب الأذكار من Control Panel:', err);
+                // إعادة المحاولة بعد 30 ثانية
+                setTimeout(() => {
+                    console.log('🔄 إعادة محاولة تحميل الأذكار...');
+                    loadAndScheduleAllAzkar();
+                }, 30000);
                 return;
             }
             
             if (!adkarList || adkarList.length === 0) {
-                console.log('⚠️ لا توجد أذكار نشطة للجدولة');
+                console.log('⚠️ لا توجد أذكار نشطة للجدولة في Control Panel');
                 return;
             }
             
-            console.log(`📋 تم العثور على ${adkarList.length} ذكر نشط`);
+            console.log(`📋 تم جلب ${adkarList.length} ذكر نشط من Control Panel`);
             
             // جدولة كل ذكر
+            let scheduledCount = 0;
             adkarList.forEach(adkar => {
-                scheduleAdkar(adkar);
+                try {
+                    scheduleAdkar(adkar);
+                    scheduledCount++;
+                } catch (error) {
+                    console.error(`❌ فشل جدولة الذكر ${adkar.id}:`, error.message);
+                }
             });
             
-            console.log(`✅ تم جدولة ${scheduledJobs.size} ذكر بنجاح`);
+            console.log(`✅ تم جدولة ${scheduledCount} من ${adkarList.length} ذكر بنجاح`);
+            console.log(`📊 إجمالي المهام المجدولة: ${scheduledJobs.size}`);
         });
 }
 
@@ -743,6 +771,73 @@ bot.onText(/\/help/, (msg) => {
         `• تحكم سهل للمشرفين`;
 
     bot.sendMessage(msg.chat.id, helpMsg, { parse_mode: 'Markdown' });
+});
+
+// ========== معالجة إضافة البوت إلى المجموعات ==========
+bot.on('my_chat_member', async (update) => {
+    try {
+        const { chat, new_chat_member, from } = update;
+        
+        // التحقق من أن البوت هو المضاف
+        if (new_chat_member.user.id !== bot.options.id) {
+            return;
+        }
+        
+        // التحقق من أن البوت أصبح عضواً أو مشرفاً (ليس محظوراً أو مغادراً)
+        if (['member', 'administrator'].includes(new_chat_member.status)) {
+            const chatId = chat.id;
+            const chatTitle = chat.title || 'المجموعة';
+            const adminId = from.id;
+            
+            console.log(`🎉 تم إضافة البوت إلى مجموعة جديدة: ${chatTitle} (${chatId})`);
+            
+            // إضافة المجموعة إلى قاعدة البيانات مع تفعيل البوت تلقائياً
+            db.run(`INSERT OR REPLACE INTO groups (chat_id, title, admin_id, bot_enabled) VALUES (?, ?, ?, 1)`, 
+                [chatId, chatTitle, adminId], async (err) => {
+                    if (err) {
+                        console.error('❌ خطأ في حفظ المجموعة:', err);
+                        return;
+                    }
+                    
+                    console.log(`✅ تم تسجيل المجموعة ${chatTitle} وتفعيل البوت تلقائياً`);
+                    
+                    try {
+                        // إرسال رسالة تأكيد التفعيل
+                        const activationMsg = `🕌 *بوت الأذكار الآن نشط!* 🕌\n\n` +
+                            `تم تفعيل البوت في ${chatTitle} بنجاح.\n\n` +
+                            `سأبدأ بنشر الأذكار حسب الجدولة المحددة.\n\n` +
+                            `*الأوامر المتاحة:*\n` +
+                            `/enable - تفعيل البوت\n` +
+                            `/disable - إيقاف البوت\n` +
+                            `/status - حالة البوت\n` +
+                            `/help - المساعدة\n\n` +
+                            `📿 استخدم /start لعرض الأقسام المتاحة`;
+                        
+                        await bot.sendMessage(chatId, activationMsg, { parse_mode: 'Markdown' });
+                        console.log(`📨 تم إرسال رسالة التفعيل إلى ${chatTitle}`);
+                    } catch (error) {
+                        console.error(`❌ خطأ في إرسال رسالة التفعيل إلى ${chatId}:`, error.message);
+                    }
+                });
+        } else if (['left', 'kicked'].includes(new_chat_member.status)) {
+            // البوت تم إزالته من المجموعة
+            const chatId = chat.id;
+            const chatTitle = chat.title || 'المجموعة';
+            
+            console.log(`❌ تم إزالة البوت من المجموعة: ${chatTitle} (${chatId})`);
+            
+            // تعطيل البوت في المجموعة
+            db.run(`UPDATE groups SET bot_enabled = 0 WHERE chat_id = ?`, [chatId], (err) => {
+                if (err) {
+                    console.error('❌ خطأ في تحديث حالة المجموعة:', err);
+                } else {
+                    console.log(`✅ تم تعطيل البوت في المجموعة ${chatTitle}`);
+                }
+            });
+        }
+    } catch (error) {
+        console.error('❌ خطأ في معالجة my_chat_member:', error);
+    }
 });
 
 // ========== واجهات API للوحة التحكم ==========
