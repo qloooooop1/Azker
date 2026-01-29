@@ -1,1530 +1,971 @@
 require('dotenv').config();
-
-console.log(`
-╔══════════════════════════════════════════════════════════╗
-║        🕌 بوت الأذكار الإسلامي - النظام المتكامل        ║
-║        الإصدار: 4.0.0 - لوحة تحكم متقدمة                ║
-║        المطور: @dev3bod                                 ║
-║        الوقت: ${new Date().toLocaleString('ar-SA')}     ║
-╚══════════════════════════════════════════════════════════╝
-`);
-
 const express = require('express');
-const axios = require('axios');
-const fs = require('fs-extra');
-const path = require('path');
-const moment = require('moment-timezone');
+const TelegramBot = require('node-telegram-bot-api');
+const sqlite3 = require('sqlite3').verbose();
+const moment = require('moment');
 const cron = require('node-cron');
-const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const cors = require('cors');
-const session = require('express-session');
+const helmet = require('helmet');
 
+// ========== إعدادات التطبيق ==========
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// إعدادات الوقت
-moment.tz.setDefault(process.env.TIMEZONE || 'Asia/Riyadh');
-
-// إعدادات Express لـ Render
-const PORT = process.env.PORT || 10000;
-
-// إعدادات CORS للسماح بجميع المصادر (للتطوير)
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
-}));
-
-// معالجة JSON
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// ملفات ثابتة
+// إعدادات الأمان
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
-app.use('/uploads', express.static('uploads'));
 
-// جلسة الإدارة
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'islamic-bot-admin-secret-2024',
-  resave: false,
-  saveUninitialized: true,
-  cookie: { 
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 ساعة
-  }
-}));
-
-// تسجيل الطلبات
-app.use((req, res, next) => {
-  const timestamp = moment().format('YYYY-MM-DD HH:mm:ss');
-  console.log(`[${timestamp}] ${req.method} ${req.url} - ${req.ip}`);
-  next();
-});
-
-// ==================== صفحة رئيسية بسيطة ====================
-
-app.get('/', (req, res) => {
-  const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>بوت الأذكار الإسلامي - النظام المتكامل</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a2980 0%, #26d0ce 100%);
-            color: white;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        .container { 
-            text-align: center;
-            max-width: 800px;
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            padding: 40px;
-            border-radius: 20px;
-            border: 1px solid rgba(255,255,255,0.2);
-        }
-        h1 { 
-            font-size: 3em; 
-            color: #FFD700; 
-            margin-bottom: 20px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-        .status { 
-            display: inline-block;
-            background: #4CAF50;
-            padding: 10px 20px;
-            border-radius: 20px;
-            margin: 20px 0;
-            font-weight: bold;
-        }
-        .links { 
-            margin-top: 30px;
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 15px;
-        }
-        .btn { 
-            display: inline-block;
-            padding: 15px 30px;
-            background: rgba(255,215,0,0.2);
-            color: #FFD700;
-            text-decoration: none;
-            border-radius: 10px;
-            border: 2px solid #FFD700;
-            transition: all 0.3s;
-            font-weight: bold;
-        }
-        .btn:hover { 
-            background: #FFD700;
-            color: #1a2980;
-            transform: translateY(-3px);
-        }
-        .info { 
-            margin-top: 30px;
-            background: rgba(0,0,0,0.2);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: right;
-        }
-        @media (max-width: 768px) {
-            h1 { font-size: 2em; }
-            .container { padding: 20px; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🕌 بوت الأذكار الإسلامي</h1>
-        <p>نظام متكامل لإدارة الأذكار والتذكيرات الإسلامية عبر تليجرام</p>
-        
-        <div class="status">🟢 النظام يعمل بنجاح</div>
-        
-        <div class="links">
-            <a href="/admin/dashboard" class="btn">👑 لوحة التحكم</a>
-            <a href="/health" class="btn">🩺 فحص الصحة</a>
-            <a href="/api/stats" class="btn">📊 الإحصائيات</a>
-            <a href="https://t.me/${process.env.BOT_USERNAME || 'your_bot'}" class="btn" target="_blank">🤖 الذهاب للبوت</a>
-        </div>
-        
-        <div class="info">
-            <h3>📋 معلومات النظام:</h3>
-            <p>👤 المطور: @dev3bod</p>
-            <p>⚡ يستضاف على: Render</p>
-            <p>🕒 الوقت: <span id="currentTime">${new Date().toLocaleString('ar-SA')}</span></p>
-            <p>🔗 الرابط: ${req.protocol}://${req.get('host')}</p>
-        </div>
-    </div>
-    
-    <script>
-        // تحديث الوقت
-        function updateTime() {
-            const now = new Date();
-            const options = { 
-                timeZone: 'Asia/Riyadh',
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: true
-            };
-            document.getElementById('currentTime').textContent = 
-                now.toLocaleString('ar-SA', options);
-        }
-        
-        setInterval(updateTime, 1000);
-        updateTime();
-    </script>
-</body>
-</html>`;
-  
-  res.send(html);
-});
-
-// ==================== فحص الصحة ====================
-
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'islamic-telegram-bot-admin',
-    version: '4.0.0',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    platform: process.platform,
-    memory: process.memoryUsage(),
-    database: 'local-storage'
-  });
-});
-
-// ==================== API للإحصائيات ====================
-
-app.get('/api/stats', (req, res) => {
-  const stats = {
-    service: 'بوت الأذكار الإسلامي',
-    version: '4.0.0',
-    status: 'running',
-    timestamp: new Date().toISOString(),
-    features: {
-      admin_panel: true,
-      content_management: true,
-      media_library: true,
-      live_streaming: false,
-      enhanced_categories: true,
-      pdf_resources: 5,
-      audio_resources: 6
-    },
-    developer: {
-      name: '@dev3bod',
-      support_group: process.env.ADMIN_GROUP_ID || '-1003595290365'
+// التحقق من المتغيرات البيئية الأساسية
+const requiredEnvVars = ['TELEGRAM_BOT_TOKEN', 'ADMIN_USERNAME'];
+for (const envVar of requiredEnvVars) {
+    if (!process.env[envVar]) {
+        console.error(`❌ خطأ: المتغير البيئي ${envVar} غير محدد`);
+        process.exit(1);
     }
-  };
-  
-  res.json(stats);
-});
-
-// ==================== نظام المصادقة البسيط ====================
-
-// وظيفة التحقق من المصادقة
-function requireAuth(req, res, next) {
-  if (req.session && req.session.userId === 'admin') {
-    return next();
-  }
-  
-  // إذا لم يكن مسجلاً دخولاً، توجيه إلى صفحة تسجيل الدخول
-  if (req.originalUrl.startsWith('/admin')) {
-    return res.redirect('/admin/login');
-  }
-  
-  next();
 }
 
-// ==================== لوحة التحكم ====================
+// ========== إعداد قاعدة البيانات ==========
+const dbPath = process.env.DB_PATH || './adkar.db';
+const db = new sqlite3.Database(dbPath);
 
-// صفحة تسجيل الدخول
-app.get('/admin/login', (req, res) => {
-  // إذا كان مسجلاً دخولاً بالفعل، توجيه إلى لوحة التحكم
-  if (req.session.userId === 'admin') {
-    return res.redirect('/admin/dashboard');
-  }
-  
-  const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تسجيل الدخول - لوحة تحكم البوت</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            background: linear-gradient(135deg, #1a2980 0%, #26d0ce 100%);
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        
-        .login-card {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            width: 100%;
-            max-width: 400px;
-        }
-        
-        .login-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        
-        .login-header h2 {
-            color: #1a2980;
-            margin-bottom: 10px;
-        }
-        
-        .login-header p {
-            color: #666;
-        }
-        
-        .form-control {
-            padding: 12px 15px;
-            border-radius: 10px;
-            border: 2px solid #e0e0e0;
-            margin-bottom: 20px;
-            transition: all 0.3s;
-        }
-        
-        .form-control:focus {
-            border-color: #1a2980;
-            box-shadow: 0 0 0 0.2rem rgba(26, 41, 128, 0.25);
-        }
-        
-        .btn-login {
-            background: linear-gradient(135deg, #1a2980 0%, #26d0ce 100%);
-            color: white;
-            border: none;
-            padding: 12px;
-            border-radius: 10px;
-            width: 100%;
-            font-weight: bold;
-            transition: transform 0.3s;
-        }
-        
-        .btn-login:hover {
-            transform: translateY(-2px);
-        }
-        
-        .alert {
-            margin-top: 20px;
-            border-radius: 10px;
-        }
-        
-        .btn-back {
-            margin-top: 15px;
-            background: #6c757d;
-            color: white;
-            border: none;
-            padding: 10px;
-            border-radius: 10px;
-            width: 100%;
-        }
-    </style>
-</head>
-<body>
-    <div class="login-card">
-        <div class="login-header">
-            <h2>🕌 لوحة تحكم البوت</h2>
-            <p>بوت الأذكار الإسلامي - الإصدار المطور</p>
-        </div>
-        
-        <form id="loginForm">
-            <div class="mb-3">
-                <input type="text" class="form-control" id="username" 
-                       placeholder="اسم المستخدم" required value="admin">
-            </div>
-            
-            <div class="mb-3">
-                <input type="password" class="form-control" id="password" 
-                       placeholder="كلمة المرور" required value="admin123">
-            </div>
-            
-            <button type="submit" class="btn btn-login">
-                تسجيل الدخول
-            </button>
-            
-            <button type="button" class="btn btn-back" onclick="window.location.href='/'">
-                العودة للصفحة الرئيسية
-            </button>
-            
-            <div id="errorMessage" class="alert alert-danger mt-3 d-none"></div>
-        </form>
-    </div>
+// إنشاء الجداول
+db.serialize(() => {
+    // جدول الأذكار (التحكم فقط للمطور)
+    db.run(`CREATE TABLE IF NOT EXISTS adkar (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL,
+        type TEXT DEFAULT 'text',
+        file_path TEXT,
+        schedule_type TEXT DEFAULT 'daily',
+        schedule_time TEXT,
+        days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]',
+        repeat_interval INTEGER DEFAULT 60,
+        is_active INTEGER DEFAULT 1,
+        priority INTEGER DEFAULT 1,
+        created_by TEXT DEFAULT 'developer',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // جدول المجموعات
+    db.run(`CREATE TABLE IF NOT EXISTS groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT UNIQUE NOT NULL,
+        title TEXT,
+        admin_id TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        bot_enabled INTEGER DEFAULT 1,
+        settings TEXT DEFAULT '{}',
+        join_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_message_date DATETIME
+    )`);
+
+    // جدول سجلات النشر
+    db.run(`CREATE TABLE IF NOT EXISTS broadcast_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT,
+        adkar_id INTEGER,
+        status TEXT,
+        error TEXT,
+        sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // جدول البث الفوري
+    db.run(`CREATE TABLE IF NOT EXISTS broadcasts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message TEXT NOT NULL,
+        type TEXT DEFAULT 'text',
+        file_path TEXT,
+        sent_count INTEGER DEFAULT 0,
+        total_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // جدول المستخدمين (للوحة التحكم)
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT DEFAULT 'admin',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // إضافة المستخدم المطور إذا لم يكن موجوداً
+    const adminUsername = process.env.ADMIN_USERNAME;
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     
-    <script>
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const errorDiv = document.getElementById('errorMessage');
-            
-            errorDiv.classList.add('d-none');
-            
-            try {
-                const response = await fetch('/admin/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ username, password })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    window.location.href = data.redirect;
-                } else {
-                    errorDiv.textContent = data.message;
-                    errorDiv.classList.remove('d-none');
+    db.get(`SELECT * FROM users WHERE username = ?`, [adminUsername], (err, user) => {
+        if (!user) {
+            bcrypt.hash(adminPassword, 10, (err, hash) => {
+                if (!err) {
+                    db.run(`INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'super_admin')`,
+                        [adminUsername, hash]);
+                    console.log('👑 تم إنشاء حساب المطور الافتراضي');
                 }
-            } catch (error) {
-                errorDiv.textContent = 'حدث خطأ في الاتصال. حاول مرة أخرى.';
-                errorDiv.classList.remove('d-none');
-            }
-        });
-    </script>
-</body>
-</html>`;
-  
-  res.send(html);
-});
-
-// معالجة تسجيل الدخول
-app.post('/admin/login', express.json(), (req, res) => {
-  const { username, password } = req.body;
-  
-  // بيانات الدخول الافتراضية (يمكن تغييرها في ملف .env)
-  const adminUser = process.env.ADMIN_USERNAME || 'admin';
-  const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
-  
-  if (username === adminUser && password === adminPass) {
-    req.session.userId = 'admin';
-    req.session.isAdmin = true;
-    req.session.save();
-    
-    res.json({ 
-      success: true, 
-      redirect: '/admin/dashboard',
-      message: 'تم تسجيل الدخول بنجاح'
+            });
+        }
     });
-  } else {
-    res.json({ 
-      success: false, 
-      message: 'بيانات الدخول غير صحيحة' 
+
+    // إضافة الأذكار الافتراضية
+    addDefaultAdkar();
+});
+
+// ========== إعداد البوت ==========
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+const bot = new TelegramBot(botToken, { polling: true });
+
+console.log('🤖 بوت التلجرام يعمل...');
+
+// ========== وظائف مساعدة ==========
+function addDefaultAdkar() {
+    const defaultAdkar = [
+        {
+            title: "أذكار الصباح",
+            content: "أصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير. سبحان الله وبحمده: عدد خلقه، ورضا نفسه، وزنة عرشه، ومداد كلماته.",
+            category: "morning",
+            schedule_time: "06:00",
+            schedule_type: "daily"
+        },
+        {
+            title: "أذكار المساء",
+            content: "أمسينا وأمسى الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير. اللهم بك أمسينا، وبك أصبحنا، وبك نحيا، وبك نموت، وإليك النشور.",
+            category: "evening",
+            schedule_time: "18:00",
+            schedule_type: "daily"
+        },
+        {
+            title: "سبحان الله وبحمده",
+            content: "سبحان الله وبحمده، سبحان الله العظيم. من قالها في يوم مائة مرة حطت خطاياه وإن كانت مثل زبد البحر.",
+            category: "general",
+            schedule_type: "interval",
+            repeat_interval: 120
+        },
+        {
+            title: "لا إله إلا الله وحده لا شريك له",
+            content: "لا إله إلا الله وحده لا شريك له، له الملك وله الحمد وهو على كل شيء قدير. كان رسول الله ﷺ يعلمنا إذا أصبحنا أن نقولها عشر مرات.",
+            category: "general",
+            schedule_time: "12:00",
+            schedule_type: "daily"
+        }
+    ];
+
+    defaultAdkar.forEach(adkar => {
+        db.run(`INSERT OR IGNORE INTO adkar (title, content, category, schedule_type, schedule_time, repeat_interval) 
+                VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                adkar.title,
+                adkar.content,
+                adkar.category,
+                adkar.schedule_type,
+                adkar.schedule_time,
+                adkar.repeat_interval || 60
+            ]);
     });
-  }
-});
+}
 
-// لوحة التحكم الرئيسية
-app.get('/admin/dashboard', requireAuth, (req, res) => {
-  const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم بوت الأذكار الإسلامي</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-    <style>
-        :root {
-            --primary-color: #1a2980;
-            --secondary-color: #26d0ce;
-        }
-        
-        body {
-            background: #f8f9fa;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        
-        .sidebar {
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-            color: white;
-            min-height: 100vh;
-            box-shadow: 3px 0 15px rgba(0,0,0,0.1);
-        }
-        
-        .sidebar .nav-link {
-            color: rgba(255,255,255,0.8);
-            padding: 12px 20px;
-            margin: 5px 0;
-            border-radius: 8px;
-            transition: all 0.3s;
-        }
-        
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            background: rgba(255,255,255,0.1);
-            color: white;
-            transform: translateX(5px);
-        }
-        
-        .sidebar .nav-link i {
-            margin-left: 10px;
-        }
-        
-        .stat-card {
-            background: white;
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
-            transition: transform 0.3s;
-            border: none;
-        }
-        
-        .stat-card:hover {
-            transform: translateY(-5px);
-        }
-        
-        .stat-icon {
-            width: 60px;
-            height: 60px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            margin-bottom: 15px;
-        }
-        
-        .stat-value {
-            font-size: 2rem;
-            font-weight: bold;
-            color: var(--primary-color);
-        }
-        
-        .stat-label {
-            color: #6c757d;
-            font-size: 0.9rem;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-            border: none;
-            padding: 10px 25px;
-            border-radius: 25px;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        
-        .btn-logout {
-            background: #dc3545;
-            color: white;
-        }
-        
-        .btn-fixed {
-            position: fixed;
-            bottom: 30px;
-            left: 30px;
-            z-index: 1000;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        }
-    </style>
-</head>
-<body>
-    <div class="container-fluid">
-        <div class="row">
-            <!-- Sidebar -->
-            <div class="col-md-3 col-lg-2 sidebar d-md-block">
-                <div class="position-sticky pt-3">
-                    <div class="text-center mb-4">
-                        <h3><i class="bi bi-moon-stars"></i> الأذكار</h3>
-                        <small class="text-white-50">لوحة التحكم المطورة</small>
-                    </div>
-                    
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
-                            <a class="nav-link active" href="/admin/dashboard">
-                                <i class="bi bi-speedometer2"></i> لوحة التحكم
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/admin/content">
-                                <i class="bi bi-journal-text"></i> إدارة المحتوى
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/admin/media">
-                                <i class="bi bi-file-earmark-music"></i> الوسائط
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/admin/settings">
-                                <i class="bi bi-gear"></i> الإعدادات
-                            </a>
-                        </li>
-                        <li class="nav-item mt-4">
-                            <a class="nav-link btn-logout" href="/admin/logout">
-                                <i class="bi bi-box-arrow-right"></i> تسجيل الخروج
-                            </a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-            
-            <!-- Main Content -->
-            <div class="col-md-9 col-lg-10 ms-sm-auto px-md-4 py-4">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2><i class="bi bi-speedometer2"></i> لوحة التحكم الرئيسية</h2>
-                    <span class="badge bg-success">🟢 النظام يعمل</span>
-                </div>
-                
-                <!-- Welcome Message -->
-                <div class="stat-card">
-                    <h4>👋 مرحباً بك في لوحة تحكم بوت الأذكار الإسلامي</h4>
-                    <p class="text-muted">يمكنك من هنا إدارة جميع محتويات البوت والإعدادات</p>
-                </div>
-                
-                <!-- Statistics Cards -->
-                <div class="row">
-                    <div class="col-md-3">
-                        <div class="stat-card">
-                            <div class="stat-icon bg-primary text-white">
-                                <i class="bi bi-people"></i>
-                            </div>
-                            <div class="stat-value" id="groupsCount">0</div>
-                            <div class="stat-label">المجموعات النشطة</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="stat-card">
-                            <div class="stat-icon bg-success text-white">
-                                <i class="bi bi-journal-text"></i>
-                            </div>
-                            <div class="stat-value" id="adhkarCount">50+</div>
-                            <div class="stat-label">الأذكار المتاحة</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="stat-card">
-                            <div class="stat-icon bg-warning text-white">
-                                <i class="bi bi-folder"></i>
-                            </div>
-                            <div class="stat-value" id="categoriesCount">8</div>
-                            <div class="stat-label">الأقسام المطورة</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="stat-card">
-                            <div class="stat-icon bg-info text-white">
-                                <i class="bi bi-file-earmark-music"></i>
-                            </div>
-                            <div class="stat-value" id="mediaCount">11</div>
-                            <div class="stat-label">الوسائط</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Quick Actions -->
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <div class="stat-card">
-                            <h5><i class="bi bi-lightning-charge"></i> إجراءات سريعة</h5>
-                            <div class="row mt-3">
-                                <div class="col-6">
-                                    <button class="btn btn-primary w-100 mb-2" onclick="window.location.href='/admin/content'">
-                                        <i class="bi bi-plus-circle"></i> إضافة ذكر
-                                    </button>
-                                    <button class="btn btn-success w-100" onclick="window.location.href='/admin/media'">
-                                        <i class="bi bi-upload"></i> رفع وسائط
-                                    </button>
-                                </div>
-                                <div class="col-6">
-                                    <button class="btn btn-warning w-100 mb-2" onclick="testBroadcast()">
-                                        <i class="bi bi-megaphone"></i> اختبار البث
-                                    </button>
-                                    <button class="btn btn-info w-100" onclick="refreshStats()">
-                                        <i class="bi bi-arrow-clockwise"></i> تحديث
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="col-md-6">
-                        <div class="stat-card">
-                            <h5><i class="bi bi-info-circle"></i> معلومات النظام</h5>
-                            <ul class="list-group list-group-flush mt-3">
-                                <li class="list-group-item d-flex justify-content-between">
-                                    <span>النسخة:</span>
-                                    <span class="fw-bold">4.0.0</span>
-                                </li>
-                                <li class="list-group-item d-flex justify-content-between">
-                                    <span>الحالة:</span>
-                                    <span class="badge bg-success">نشط</span>
-                                </li>
-                                <li class="list-group-item d-flex justify-content-between">
-                                    <span>المطور:</span>
-                                    <span>@dev3bod</span>
-                                </li>
-                                <li class="list-group-item d-flex justify-content-between">
-                                    <span>الخادم:</span>
-                                    <span>Render</span>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Enhanced Features -->
-                <div class="row mt-4">
-                    <div class="col-12">
-                        <div class="stat-card">
-                            <h5><i class="bi bi-stars"></i> المميزات المطورة</h5>
-                            <div class="row mt-3">
-                                <div class="col-md-4">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-moon-stars fs-1 text-primary"></i>
-                                            <h6 class="mt-2">أذكار النوم</h6>
-                                            <small class="text-muted">أذكار وأدعية ما قبل النوم</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-sun fs-1 text-warning"></i>
-                                            <h6 class="mt-2">أذكار الاستيقاظ</h6>
-                                            <small class="text-muted">أذكار وأدعية الاستيقاظ</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-airplane fs-1 text-info"></i>
-                                            <h6 class="mt-2">أذكار السفر</h6>
-                                            <small class="text-muted">أذكار وأدعية السفر</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="row mt-3">
-                                <div class="col-md-4">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-file-pdf fs-1 text-danger"></i>
-                                            <h6 class="mt-2">ملفات PDF</h6>
-                                            <small class="text-muted">5 ملفات PDF للتحميل</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-music-note-beamed fs-1 text-success"></i>
-                                            <h6 class="mt-2">روابط صوتية</h6>
-                                            <small class="text-muted">6 روابط صوتية مباشرة</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-cast fs-1 text-purple"></i>
-                                            <h6 class="mt-2">نظام البث</h6>
-                                            <small class="text-muted">بث مباشر للمجموعات</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Floating Button -->
-    <button class="btn btn-primary btn-fixed" onclick="refreshDashboard()">
-        <i class="bi bi-arrow-clockwise"></i>
-    </button>
-    
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        function refreshDashboard() {
-            location.reload();
-        }
-        
-        function refreshStats() {
-            fetch('/api/stats')
-                .then(response => response.json())
-                .then(data => {
-                    alert('✅ تم تحديث الإحصائيات\\nالإصدار: ' + data.version);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('❌ حدث خطأ في التحديث');
-                });
-        }
-        
-        function testBroadcast() {
-            if (confirm('هل تريد إرسال رسالة اختبار لجميع المجموعات؟')) {
-                fetch('/api/broadcast/test', { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert('✅ تم إرسال رسالة الاختبار بنجاح');
-                        } else {
-                            alert('❌ ' + data.message);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        alert('❌ حدث خطأ في الإرسال');
-                    });
-            }
-        }
-        
-        // تحديث الإحصائيات كل 30 ثانية
-        setInterval(() => {
-            fetch('/health')
-                .then(response => response.json())
-                .then(data => {
-                    // يمكن إضافة تحديث للإحصائيات هنا
-                })
-                .catch(error => console.error('Health check error:', error));
-        }, 30000);
-    </script>
-</body>
-</html>`;
-  
-  res.send(html);
-});
-
-// ==================== إدارة المحتوى ====================
-
-app.get('/admin/content', requireAuth, (req, res) => {
-  const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>إدارة المحتوى - بوت الأذكار</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background: #f8f9fa; padding: 20px; }
-        .card { margin-bottom: 20px; border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .btn-action { margin: 5px; }
-        .enhanced-badge { background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%); color: white; }
-    </style>
-</head>
-<body>
-    <div class="container-fluid">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="bi bi-journal-text"></i> إدارة المحتوى المطور</h2>
-            <a href="/admin/dashboard" class="btn btn-secondary">← العودة</a>
-        </div>
-        
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">الأذكار المطورة</h5>
-                    </div>
-                    <div class="card-body">
-                        <p>8 فئات مطورة تحتوي على أذكار متنوعة</p>
-                        <div class="d-grid gap-2">
-                            <button class="btn btn-success" onclick="viewEnhancedCategories()">
-                                <i class="bi bi-stars"></i> عرض الفئات المطورة
-                            </button>
-                            <button class="btn btn-info" onclick="viewEnhancedPDFs()">
-                                <i class="bi bi-file-pdf"></i> ملفات PDF (5)
-                            </button>
-                            <button class="btn btn-warning" onclick="viewEnhancedAudios()">
-                                <i class="bi bi-music-note-beamed"></i> روابط صوتية (6)
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header bg-success text-white">
-                        <h5 class="mb-0">إضافة محتوى جديد</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="d-grid gap-2">
-                            <button class="btn btn-primary" onclick="addNewAdhkar()">
-                                <i class="bi bi-plus-circle"></i> إضافة ذكر جديد
-                            </button>
-                            <button class="btn btn-secondary" onclick="importJSON()">
-                                <i class="bi bi-upload"></i> رفع ملف JSON
-                            </button>
-                            <button class="btn btn-info" onclick="exportContent()">
-                                <i class="bi bi-download"></i> تصدير المحتوى
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card mt-4">
-            <div class="card-header bg-dark text-white">
-                <h5 class="mb-0">الفئات المتاحة</h5>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>الفئة</th>
-                                <th>عدد الأذكار</th>
-                                <th>الحالة</th>
-                                <th>الإجراءات</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><i class="bi bi-moon-stars"></i> أذكار النوم</td>
-                                <td>4</td>
-                                <td><span class="badge bg-success">مفعل</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary">عرض</button>
-                                    <button class="btn btn-sm btn-warning">تعديل</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><i class="bi bi-sun"></i> أذكار الاستيقاظ</td>
-                                <td>2</td>
-                                <td><span class="badge bg-success">مفعل</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary">عرض</button>
-                                    <button class="btn btn-sm btn-warning">تعديل</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><i class="bi bi-airplane"></i> أذكار السفر</td>
-                                <td>2</td>
-                                <td><span class="badge bg-success">مفعل</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary">عرض</button>
-                                    <button class="btn btn-sm btn-warning">تعديل</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><i class="bi bi-egg-fried"></i> أذكار الطعام</td>
-                                <td>2</td>
-                                <td><span class="badge bg-success">مفعل</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary">عرض</button>
-                                    <button class="btn btn-sm btn-warning">تعديل</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><i class="bi bi-house"></i> أذكار عامة</td>
-                                <td>3</td>
-                                <td><span class="badge bg-success">مفعل</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary">عرض</button>
-                                    <button class="btn btn-sm btn-warning">تعديل</button>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        function viewEnhancedCategories() {
-            alert('🌟 الفئات المطورة:\\n\\n1. أذكار النوم\\n2. أذكار الاستيقاظ\\n3. أذكار السفر\\n4. أذكار الطعام\\n5. أذكار عامة\\n6. أدعية الاستغفار\\n7. آيات قرآنية\\n8. أدعية متنوعة');
-        }
-        
-        function viewEnhancedPDFs() {
-            alert('📄 ملفات PDF المتاحة:\\n\\n1. حصن المسلم كامل\\n2. الأذكار للنووي\\n3. سورة الكهف كاملة\\n4. أذكار الصباح والمساء\\n5. دعاء ختم القرآن');
-        }
-        
-        function viewEnhancedAudios() {
-            alert('🎵 روابط صوتية متاحة:\\n\\n1. القرآن الكريم كامل - عبد الباسط\\n2. أذكار مسموعة كاملة\\n3. دعاء القنوت\\n4. تكبيرات العيد\\n5. سورة يس\\n6. سورة الملك');
-        }
-        
-        function addNewAdhkar() {
-            alert('🚀 هذه الخاصية قيد التطوير\\nسيتم تفعيلها قريباً');
-        }
-        
-        function importJSON() {
-            alert('📁 هذه الخاصية قيد التطوير\\nسيتم تفعيلها قريباً');
-        }
-        
-        function exportContent() {
-            alert('💾 هذه الخاصية قيد التطوير\\nسيتم تفعيلها قريباً');
-        }
-    </script>
-</body>
-</html>`;
-  
-  res.send(html);
-});
-
-// ==================== إدارة الوسائط ====================
-
-app.get('/admin/media', requireAuth, (req, res) => {
-  const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>إدارة الوسائط - بوت الأذكار</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background: #f8f9fa; padding: 20px; }
-        .media-card { 
-            margin-bottom: 15px; 
-            border: none;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            transition: transform 0.3s;
-        }
-        .media-card:hover { transform: translateY(-3px); }
-        .media-icon { font-size: 2em; margin-bottom: 10px; }
-    </style>
-</head>
-<body>
-    <div class="container-fluid">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="bi bi-file-earmark-music"></i> إدارة الوسائط المطورة</h2>
-            <a href="/admin/dashboard" class="btn btn-secondary">← العودة</a>
-        </div>
-        
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header bg-primary text-white">
-                        <h5><i class="bi bi-file-pdf"></i> ملفات PDF (5)</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="list-group">
-                            <div class="list-group-item media-card">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6>حصن المسلم كامل</h6>
-                                        <small class="text-muted">كتاب حصن المسلم كامل PDF</small>
-                                    </div>
-                                    <button class="btn btn-sm btn-info" onclick="copyLink('https://ia800908.us.archive.org/16/items/hisn-muslim-pdf/Hisn_Al-Muslim.pdf')">
-                                        <i class="bi bi-link"></i> نسخ
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="list-group-item media-card">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6>الأذكار للنووي</h6>
-                                        <small class="text-muted">كتاب الأذكار للإمام النووي</small>
-                                    </div>
-                                    <button class="btn btn-sm btn-info" onclick="copyLink('https://www.noor-book.com/كتاب-الاذكار-من-كلام-سيد-الابرار-pdf')">
-                                        <i class="bi bi-link"></i> نسخ
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="list-group-item media-card">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6>سورة الكهف كاملة</h6>
-                                        <small class="text-muted">سورة الكهف كاملة مع التفسير</small>
-                                    </div>
-                                    <button class="btn btn-sm btn-info" onclick="copyLink('https://server.islamic.com/pdf/surah-al-kahf.pdf')">
-                                        <i class="bi bi-link"></i> نسخ
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header bg-success text-white">
-                        <h5><i class="bi bi-music-note-beamed"></i> روابط صوتية (6)</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="list-group">
-                            <div class="list-group-item media-card">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6>القرآن الكريم كامل</h6>
-                                        <small class="text-muted">عبد الباسط عبد الصمد</small>
-                                    </div>
-                                    <button class="btn btn-sm btn-info" onclick="copyLink('https://everyayah.com/data/Abdul_Basit_Murattal_128kbps/')">
-                                        <i class="bi bi-link"></i> نسخ
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="list-group-item media-card">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6>أذكار مسموعة كاملة</h6>
-                                        <small class="text-muted">مكتبة الأذكار المسموعة</small>
-                                    </div>
-                                    <button class="btn btn-sm btn-info" onclick="copyLink('https://server.islamic.com/audio/adhkar/full-collection/')">
-                                        <i class="bi bi-link"></i> نسخ
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="list-group-item media-card">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6>دعاء القنوت</h6>
-                                        <small class="text-muted">دعاء القنوت في صلاة الوتر</small>
-                                    </div>
-                                    <button class="btn btn-sm btn-info" onclick="copyLink('https://server.islamic.com/audio/dua/qunut.mp3')">
-                                        <i class="bi bi-link"></i> نسخ
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card mt-4">
-            <div class="card-header bg-info text-white">
-                <h5><i class="bi bi-upload"></i> رفع وسائط جديدة</h5>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle"></i> يمكنك رفع ملفات PDF وملفات صوتية مباشرة إلى السيرفر
-                </div>
-                
-                <form id="uploadForm">
-                    <div class="mb-3">
-                        <label class="form-label">اختر نوع الملف</label>
-                        <select class="form-select" id="fileType">
-                            <option value="pdf">ملف PDF</option>
-                            <option value="audio">ملف صوتي (MP3)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">اختر الملف</label>
-                        <input type="file" class="form-control" id="fileInput" accept=".pdf,.mp3,.ogg,.wav">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">وصف الملف (اختياري)</label>
-                        <input type="text" class="form-control" id="fileDescription" placeholder="وصف للملف">
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-upload"></i> رفع الملف
-                    </button>
-                </form>
-                
-                <div id="uploadResult" class="mt-3"></div>
-            </div>
-        </div>
-    </div>
-    
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        function copyLink(url) {
-            navigator.clipboard.writeText(url)
-                .then(() => alert('✅ تم نسخ الرابط إلى الحافظة'))
-                .catch(err => alert('❌ خطأ في النسخ: ' + err));
-        }
-        
-        document.getElementById('uploadForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const fileInput = document.getElementById('fileInput');
-            const fileType = document.getElementById('fileType').value;
-            const description = document.getElementById('fileDescription').value;
-            const resultDiv = document.getElementById('uploadResult');
-            
-            if (!fileInput.files[0]) {
-                resultDiv.innerHTML = '<div class="alert alert-danger">⚠️ يرجى اختيار ملف أولاً</div>';
+// التحقق من إمكانية الإرسال للمجموعة
+function canSendToGroup(chatId, callback) {
+    db.get(`SELECT bot_enabled, is_active FROM groups WHERE chat_id = ?`, 
+        [chatId], (err, group) => {
+            if (err || !group) {
+                callback(false);
                 return;
             }
-            
-            const file = fileInput.files[0];
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('type', fileType);
-            formData.append('description', description);
-            
-            resultDiv.innerHTML = '<div class="alert alert-info">⏳ جاري رفع الملف...</div>';
-            
-            // في الإصدار الحقيقي، سيتم إرسال إلى السيرفر
-            // fetch('/api/upload', { method: 'POST', body: formData })
-            
-            // محاكاة الرفع
-            setTimeout(() => {
-                resultDiv.innerHTML = \`<div class="alert alert-success">
-                    ✅ تم رفع الملف بنجاح
-                    <br><small>الاسم: \${file.name}</small>
-                    <br><small>الحجم: \${(file.size / 1024 / 1024).toFixed(2)} MB</small>
-                    <br><small>النوع: \${fileType === 'pdf' ? 'PDF' : 'صوتي'}</small>
-                </div>\`;
-                
-                // تفريغ الحقول
-                fileInput.value = '';
-                document.getElementById('fileDescription').value = '';
-            }, 2000);
+            callback(group.bot_enabled === 1 && group.is_active === 1);
         });
-    </script>
-</body>
-</html>`;
-  
-  res.send(html);
-});
+}
 
-// ==================== إعدادات النظام ====================
+// إرسال ذكر لمجموعة
+async function sendAdkarToGroup(chatId, adkar) {
+    try {
+        canSendToGroup(chatId, async (canSend) => {
+            if (!canSend) {
+                console.log(`⏸️ البوت موقوف في المجموعة ${chatId}`);
+                return;
+            }
 
-app.get('/admin/settings', requireAuth, (req, res) => {
-  const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>إعدادات النظام - بوت الأذكار</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="bi bi-gear"></i> إعدادات النظام</h2>
-            <a href="/admin/dashboard" class="btn btn-secondary">← العودة</a>
-        </div>
-        
-        <div class="card">
-            <div class="card-header bg-dark text-white">
-                <h5 class="mb-0">⚙️ إعدادات البوت</h5>
-            </div>
-            <div class="card-body">
-                <form id="settingsForm">
-                    <div class="mb-3">
-                        <label class="form-label">اسم البوت</label>
-                        <input type="text" class="form-control" value="بوت الأذكار الإسلامي" disabled>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">اسم المستخدم (@username)</label>
-                        <input type="text" class="form-control" value="${process.env.BOT_USERNAME || 'your_bot'}" disabled>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">معرف المطور</label>
-                        <input type="text" class="form-control" value="${process.env.DEVELOPER_ID || '6960704733'}" disabled>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">معرف مجموعة الدعم</label>
-                        <input type="text" class="form-control" value="${process.env.ADMIN_GROUP_ID || '-1003595290365'}" disabled>
-                    </div>
-                    
-                    <hr>
-                    
-                    <h5>📅 إعدادات الجدولة</h5>
-                    <div class="row mt-3">
-                        <div class="col-md-6">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="morningAdhkar" checked>
-                                <label class="form-check-label" for="morningAdhkar">
-                                    أذكار الصباح (6:00 صباحاً)
-                                </label>
-                            </div>
-                            
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="eveningAdhkar" checked>
-                                <label class="form-check-label" for="eveningAdhkar">
-                                    أذكار المساء (6:00 مساءً)
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="col-md-6">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="fridayReminder" checked>
-                                <label class="form-check-label" for="fridayReminder">
-                                    تذكير الجمعة (11:00 صباحاً)
-                                </label>
-                            </div>
-                            
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="periodicAdhkar" checked>
-                                <label class="form-check-label" for="periodicAdhkar">
-                                    أذكار دورية (كل ساعتين)
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <hr>
-                    
-                    <h5>🌟 الفئات المطورة</h5>
-                    <div class="row mt-3">
-                        <div class="col-md-4">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="enhancedSleep" checked>
-                                <label class="form-check-label" for="enhancedSleep">
-                                    أذكار النوم
-                                </label>
-                            </div>
-                            
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="enhancedWakeup" checked>
-                                <label class="form-check-label" for="enhancedWakeup">
-                                    أذكار الاستيقاظ
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="col-md-4">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="enhancedTravel" checked>
-                                <label class="form-check-label" for="enhancedTravel">
-                                    أذكار السفر
-                                </label>
-                            </div>
-                            
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="enhancedEating" checked>
-                                <label class="form-check-label" for="enhancedEating">
-                                    أذكار الطعام
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="col-md-4">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="enhancedGeneral" checked>
-                                <label class="form-check-label" for="enhancedGeneral">
-                                    أذكار عامة
-                                </label>
-                            </div>
-                            
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="enhancedPDF" checked>
-                                <label class="form-check-label" for="enhancedPDF">
-                                    إرسال ملفات PDF
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <hr>
-                    
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-save"></i> حفظ الإعدادات
-                        </button>
-                        
-                        <button type="button" class="btn btn-secondary" onclick="resetSettings()">
-                            <i class="bi bi-arrow-clockwise"></i> إعادة التعيين
-                        </button>
-                        
-                        <button type="button" class="btn btn-danger" onclick="restartBot()">
-                            <i class="bi bi-power"></i> إعادة تشغيل البوت
-                        </button>
-                    </div>
-                </form>
-                
-                <div id="settingsResult" class="mt-3"></div>
-            </div>
-        </div>
-        
-        <div class="card mt-4">
-            <div class="card-header bg-warning text-white">
-                <h5 class="mb-0"><i class="bi bi-shield-check"></i> الأمان والنظام</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="alert alert-info">
-                            <h6><i class="bi bi-key"></i> تغيير كلمة المرور</h6>
-                            <button class="btn btn-sm btn-outline-info mt-2" onclick="changePassword()">
-                                تغيير كلمة المرور
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="col-md-6">
-                        <div class="alert alert-success">
-                            <h6><i class="bi bi-database-check"></i> نسخ احتياطي</h6>
-                            <button class="btn btn-sm btn-outline-success mt-2" onclick="createBackup()">
-                                إنشاء نسخة احتياطية
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="row mt-3">
-                    <div class="col-md-6">
-                        <div class="alert alert-warning">
-                            <h6><i class="bi bi-trash"></i> تنظيف البيانات</h6>
-                            <button class="btn btn-sm btn-outline-warning mt-2" onclick="clearData()">
-                                تنظيف البيانات القديمة
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="col-md-6">
-                        <div class="alert alert-danger">
-                            <h6><i class="bi bi-exclamation-triangle"></i> إعادة ضبط المصنع</h6>
-                            <button class="btn btn-sm btn-outline-danger mt-2" onclick="factoryReset()">
-                                إعادة ضبط المصنع
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.getElementById('settingsForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const resultDiv = document.getElementById('settingsResult');
-            
-            resultDiv.innerHTML = '<div class="alert alert-info">⏳ جاري حفظ الإعدادات...</div>';
-            
-            setTimeout(() => {
-                resultDiv.innerHTML = '<div class="alert alert-success">✅ تم حفظ الإعدادات بنجاح</div>';
-            }, 1500);
-        });
-        
-        function resetSettings() {
-            if (confirm('هل تريد إعادة تعيين جميع الإعدادات إلى القيم الافتراضية؟')) {
-                document.getElementById('settingsForm').reset();
-                const resultDiv = document.getElementById('settingsResult');
-                resultDiv.innerHTML = '<div class="alert alert-success">✅ تم إعادة التعيين بنجاح</div>';
-            }
-        }
-        
-        function restartBot() {
-            if (confirm('هل تريد إعادة تشغيل البوت؟ قد يستغرق ذلك بضع ثوانٍ.')) {
-                const resultDiv = document.getElementById('settingsResult');
-                resultDiv.innerHTML = '<div class="alert alert-warning">⏳ جاري إعادة التشغيل...</div>';
-                
-                setTimeout(() => {
-                    resultDiv.innerHTML = '<div class="alert alert-success">✅ تم إعادة التشغيل بنجاح</div>';
-                    setTimeout(() => location.reload(), 2000);
-                }, 3000);
-            }
-        }
-        
-        function changePassword() {
-            const newPass = prompt('أدخل كلمة المرور الجديدة:');
-            if (newPass && newPass.length >= 6) {
-                alert('✅ تم تغيير كلمة المرور بنجاح');
-            } else if (newPass) {
-                alert('❌ كلمة المرور يجب أن تكون 6 أحرف على الأقل');
-            }
-        }
-        
-        function createBackup() {
-            alert('💾 هذه الخاصية قيد التطوير\\nسيتم تفعيلها قريباً');
-        }
-        
-        function clearData() {
-            if (confirm('هل تريد حذف جميع البيانات القديمة؟ هذا الإجراء لا يمكن التراجع عنه.')) {
-                alert('🗑️ تم حذف البيانات القديمة بنجاح');
-            }
-        }
-        
-        function factoryReset() {
-            if (confirm('⚠️ تحذير: هذا سيحذف جميع البيانات والإعدادات ويعيد النظام إلى الحالة الافتراضية. هل أنت متأكد؟')) {
-                if (confirm('❌ هل أنت متأكد تماماً؟ هذا الإجراء لا يمكن التراجع عنه.')) {
-                    alert('🔄 جاري إعادة ضبط المصنع...');
-                    setTimeout(() => {
-                        alert('✅ تمت إعادة الضبط بنجاح. سيتم إعادة التوجيه...');
-                        window.location.href = '/';
-                    }, 3000);
+            let messageOptions = { 
+                parse_mode: 'HTML',
+                disable_web_page_preview: true 
+            };
+
+            // إعداد الرسالة
+            const message = `🕌 <b>${adkar.title}</b>\n\n${adkar.content}\n\n` +
+                           `📅 ${moment().format('YYYY/MM/DD')} | 🕒 ${moment().format('HH:mm')}\n` +
+                           `🔗 #أذكار_${adkar.category}`;
+
+            try {
+                // إرسال الملفات إذا وجدت
+                if (adkar.type === 'audio' && adkar.file_path && fs.existsSync(adkar.file_path)) {
+                    await bot.sendAudio(chatId, adkar.file_path, {
+                        caption: message,
+                        ...messageOptions
+                    });
+                } else if (adkar.type === 'pdf' && adkar.file_path && fs.existsSync(adkar.file_path)) {
+                    await bot.sendDocument(chatId, adkar.file_path, {
+                        caption: message,
+                        ...messageOptions
+                    });
+                } else {
+                    // إرسال نص عادي
+                    await bot.sendMessage(chatId, message, messageOptions);
                 }
+
+                // تسجيل النجاح
+                db.run(`INSERT INTO broadcast_logs (chat_id, adkar_id, status) VALUES (?, ?, ?)`,
+                    [chatId, adkar.id, 'success']);
+
+                console.log(`✅ تم نشر ذكر "${adkar.title}" في ${chatId}`);
+
+                // تحديث آخر نشاط للمجموعة
+                db.run(`UPDATE groups SET last_message_date = datetime('now') WHERE chat_id = ?`,
+                    [chatId]);
+
+            } catch (error) {
+                console.error(`❌ خطأ في الإرسال لـ ${chatId}:`, error.message);
+                db.run(`INSERT INTO broadcast_logs (chat_id, adkar_id, status, error) VALUES (?, ?, ?, ?)`,
+                    [chatId, adkar.id, 'failed', error.message]);
             }
+        });
+    } catch (error) {
+        console.error(`❌ خطأ في معالجة الإرسال:`, error);
+    }
+}
+
+// ========== جدولة النشر ==========
+cron.schedule('* * * * *', () => { // كل دقيقة
+    const now = moment();
+    const currentTime = now.format('HH:mm');
+    const currentDay = now.day();
+
+    // جلب الأذكار المجدولة لهذا الوقت
+    db.all(`SELECT * FROM adkar WHERE is_active = 1 AND schedule_time = ?`, 
+        [currentTime], (err, adkarList) => {
+            if (err) {
+                console.error('❌ خطأ في جلب الأذكار:', err);
+                return;
+            }
+
+            if (adkarList.length === 0) return;
+
+            // فلترة حسب أيام الأسبوع
+            const filteredAdkar = adkarList.filter(adkar => {
+                if (adkar.schedule_type === 'daily') return true;
+                if (adkar.schedule_type === 'weekly' && adkar.days_of_week) {
+                    try {
+                        const days = JSON.parse(adkar.days_of_week);
+                        return days.includes(currentDay);
+                    } catch {
+                        return true;
+                    }
+                }
+                return false;
+            });
+
+            if (filteredAdkar.length === 0) return;
+
+            // جلب المجموعات النشطة
+            db.all(`SELECT chat_id FROM groups WHERE bot_enabled = 1 AND is_active = 1`, 
+                (err, groups) => {
+                    if (err) {
+                        console.error('❌ خطأ في جلب المجموعات:', err);
+                        return;
+                    }
+
+                    if (groups.length === 0) return;
+
+                    console.log(`🕒 نشر ${filteredAdkar.length} ذكر في ${groups.length} مجموعة`);
+
+                    // إرسال الأذكار لكل مجموعة
+                    filteredAdkar.forEach(adkar => {
+                        groups.forEach(async (group) => {
+                            await sendAdkarToGroup(group.chat_id, adkar);
+                            // تأخير بسيط بين الإرساليات
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        });
+                    });
+                });
+        });
+});
+
+// النشر بفاصل زمني
+cron.schedule('*/5 * * * *', () => { // كل 5 دقائق
+    db.all(`SELECT * FROM adkar WHERE is_active = 1 AND schedule_type = 'interval'`, 
+        (err, intervalAdkar) => {
+            if (err || !intervalAdkar.length) return;
+
+            db.all(`SELECT chat_id FROM groups WHERE bot_enabled = 1 AND is_active = 1`, 
+                (err, groups) => {
+                    if (err || !groups.length) return;
+
+                    intervalAdkar.forEach(adkar => {
+                        groups.forEach(async (group) => {
+                            // التحقق من وقت آخر إرسال
+                            db.get(`SELECT MAX(sent_at) as last_sent FROM broadcast_logs 
+                                    WHERE chat_id = ? AND adkar_id = ? AND status = 'success'
+                                    AND datetime(sent_at) > datetime('now', '-1 hour')`,
+                                [group.chat_id, adkar.id], (err, row) => {
+                                    if (!row || !row.last_sent || 
+                                        moment().diff(moment(row.last_sent), 'minutes') >= adkar.repeat_interval) {
+                                        sendAdkarToGroup(group.chat_id, adkar);
+                                    }
+                                });
+                        });
+                    });
+                });
+        });
+});
+
+// ========== معالجة أوامر البوت ==========
+bot.onText(/\/start/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const chatType = msg.chat.type;
+
+    if (chatType === 'private') {
+        // محادثة خاصة
+        const welcomeMsg = `🕌 *مرحباً بك في بوت الأذكار* 🕌\n\n` +
+            `أنا بوت متخصص في نشر الأذكار تلقائياً في المجموعات.\n\n` +
+            `*للاستخدام:*\n` +
+            `1. أضفني إلى مجموعتك\n` +
+            `2. سأبدأ بنشر الأذكار تلقائياً\n` +
+            `3. يمكنك التحكم في البوت من خلال الأوامر أدناه\n\n` +
+            `*الأوامر المتاحة:*\n` +
+            `/enable_bot - تفعيل البوت في المجموعة\n` +
+            `/disable_bot - إيقاف البوت مؤقتاً\n` +
+            `/bot_status - حالة البوت\n` +
+            `/help - عرض المساعدة\n\n` +
+            `⚠️ *ملاحظة:* إعدادات النشر والجدولة تتم من قبل المطور فقط.`;
+
+        await bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
+
+    } else if (chatType === 'group' || chatType === 'supergroup') {
+        // إضافة البوت لمجموعة
+        const chatTitle = msg.chat.title;
+        const adminId = msg.from.id.toString();
+
+        try {
+            // حفظ المجموعة
+            db.run(`INSERT OR REPLACE INTO groups (chat_id, title, admin_id, bot_enabled) 
+                    VALUES (?, ?, ?, 1)`, 
+                [chatId, chatTitle, adminId], 
+                async (err) => {
+                    if (err) {
+                        console.error('❌ خطأ في حفظ المجموعة:', err);
+                        await bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.');
+                        return;
+                    }
+
+                    // رسالة ترحيب للمجموعة
+                    const groupWelcome = `🕌 *تم تفعيل بوت الأذكار في ${chatTitle}* 🕌\n\n` +
+                        `سأقوم بنشر الأذكار تلقائياً حسب الإعدادات المركزية.\n\n` +
+                        `*الأوامر المتاحة للمشرفين:*\n` +
+                        `/enable_bot - تفعيل البوت\n` +
+                        `/disable_bot - إيقاف البوت\n` +
+                        `/bot_status - حالة البوت\n` +
+                        `/help - المساعدة\n\n` +
+                        `⚠️ *إعدادات النشر:*\n` +
+                        `يتم التحكم بالكامل في إعدادات النشر والجدولة من قبل المطور.`;
+
+                    await bot.sendMessage(chatId, groupWelcome, { parse_mode: 'Markdown' });
+
+                    // رسالة للمشرف
+                    const adminMsg = `✅ *تم إضافة البوت لمجموعة جديدة*\n\n` +
+                        `📌 المجموعة: ${chatTitle}\n` +
+                        `👤 المشرف: ${msg.from.first_name}\n` +
+                        `🆔 الرقم: ${chatId}\n\n` +
+                        `يمكنك التحكم في البوت من خلال الأوامر في المجموعة.`;
+
+                    await bot.sendMessage(adminId, adminMsg, { parse_mode: 'Markdown' });
+
+                    // إرسال أول ذكر
+                    setTimeout(async () => {
+                        db.get(`SELECT * FROM adkar WHERE is_active = 1 ORDER BY priority LIMIT 1`, 
+                            async (err, adkar) => {
+                                if (adkar) {
+                                    await sendAdkarToGroup(chatId, adkar);
+                                }
+                            });
+                    }, 2000);
+                });
+
+        } catch (error) {
+            console.error('❌ خطأ في معالجة المجموعة:', error);
         }
-    </script>
-</body>
-</html>`;
-  
-  res.send(html);
+    }
 });
 
-// ==================== تسجيل الخروج ====================
+bot.onText(/\/enable_bot/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
 
-app.get('/admin/logout', (req, res) => {
-  req.session.destroy();
-  res.redirect('/');
+    // التحقق من صلاحية المشرف
+    try {
+        const chatMember = await bot.getChatMember(chatId, userId);
+        if (!['creator', 'administrator'].includes(chatMember.status)) {
+            await bot.sendMessage(chatId, '⚠️ هذا الأمر متاح للمشرفين فقط.');
+            return;
+        }
+
+        db.run(`UPDATE groups SET bot_enabled = 1 WHERE chat_id = ?`, [chatId], (err) => {
+            if (err) {
+                bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.');
+                return;
+            }
+
+            bot.sendMessage(chatId, 
+                '✅ *تم تفعيل البوت بنجاح*\nسأبدأ بنشر الأذكار حسب الجدولة المحددة.', 
+                { parse_mode: 'Markdown' }
+            );
+        });
+
+    } catch (error) {
+        console.error('❌ خطأ في التحقق من المشرف:', error);
+        bot.sendMessage(chatId, '❌ حدث خطأ، حاول مرة أخرى.');
+    }
 });
 
-// ==================== API اختبارية ====================
+bot.onText(/\/disable_bot/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
 
-app.post('/api/broadcast/test', requireAuth, (req, res) => {
-  res.json({
-    success: true,
-    message: 'تم إرسال رسالة الاختبار بنجاح (هذه محاكاة)',
-    timestamp: new Date().toISOString()
-  });
+    try {
+        const chatMember = await bot.getChatMember(chatId, userId);
+        if (!['creator', 'administrator'].includes(chatMember.status)) {
+            await bot.sendMessage(chatId, '⚠️ هذا الأمر متاح للمشرفين فقط.');
+            return;
+        }
+
+        db.run(`UPDATE groups SET bot_enabled = 0 WHERE chat_id = ?`, [chatId], (err) => {
+            if (err) {
+                bot.sendMessage(chatId, '❌ حدث خطأ في إيقاف البوت.');
+                return;
+            }
+
+            bot.sendMessage(chatId, 
+                '⏸️ *تم إيقاف البوت مؤقتاً*\nلن يتم نشر أي أذكار حتى إعادة التفعيل.', 
+                { parse_mode: 'Markdown' }
+            );
+        });
+
+    } catch (error) {
+        console.error('❌ خطأ في التحقق من المشرف:', error);
+        bot.sendMessage(chatId, '❌ حدث خطأ، حاول مرة أخرى.');
+    }
 });
 
-// ==================== بدء الخادم ====================
+bot.onText(/\/bot_status/, async (msg) => {
+    const chatId = msg.chat.id;
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-🌐 ===================================================== 🌐
-   ✅ خادم لوحة التحكم يعمل بنجاح!
-   📍 http://0.0.0.0:${PORT}
-   🎯 لوحة التحكم: /admin/dashboard
-   🔐 تسجيل الدخول: /admin/login
-   🩺 فحص الصحة: /health
-   📊 الإحصائيات: /api/stats
-   
-   👤 بيانات الدخول الافتراضية:
-   • المستخدم: admin
-   • كلمة المرور: admin123
-🌐 ===================================================== 🌐
-  `);
+    db.get(`SELECT bot_enabled, is_active, join_date, title FROM groups WHERE chat_id = ?`, 
+        [chatId], async (err, group) => {
+            if (err || !group) {
+                await bot.sendMessage(chatId, '❌ هذه المجموعة غير مسجلة.');
+                return;
+            }
+
+            const status = group.bot_enabled === 1 ? '🟢 نشط' : '🔴 متوقف';
+            const statusMsg = `*حالة البوت في ${group.title || 'المجموعة'}*\n\n` +
+                `📊 الحالة: ${status}\n` +
+                `📅 تاريخ الإضافة: ${moment(group.join_date).format('YYYY/MM/DD')}\n` +
+                `🕒 آخر تحديث: ${moment().format('HH:mm')}\n\n` +
+                `*الأوامر:*\n` +
+                `${group.bot_enabled === 1 ? '❌ /disable_bot - إيقاف البوت' : '✅ /enable_bot - تفعيل البوت'}`;
+
+            await bot.sendMessage(chatId, statusMsg, { parse_mode: 'Markdown' });
+        });
 });
 
-// ==================== معالجة الأخطاء ====================
+bot.onText(/\/help/, (msg) => {
+    const helpMsg = `*مركز المساعدة*\n\n` +
+        `*أوامر المشرفين:*\n` +
+        `/enable_bot - تفعيل البوت في المجموعة\n` +
+        `/disable_bot - إيقاف البوت مؤقتاً\n` +
+        `/bot_status - عرض حالة البوت\n` +
+        `/help - هذه الرسالة\n\n` +
+        `*معلومات:*\n` +
+        `📌 البوت ينشر الأذكار تلقائياً\n` +
+        `📌 الجدولة والإعدادات مركزية\n` +
+        `📌 يدعم النصوص والملفات الصوتية\n` +
+        `📌 إحصائيات مفصلة للمطور\n\n` +
+        `*اتصل بالمطور:*\n` +
+        `لأي استفسار تقني أو مشاكل.`;
 
-process.on('uncaughtException', (error) => {
-  console.error('⚠️ خطأ غير متوقع في الخادم:', error);
+    bot.sendMessage(msg.chat.id, helpMsg, { parse_mode: 'Markdown' });
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️ وعد مرفوض:', reason);
+// معالجة إزالة البوت من المجموعة
+bot.on('left_chat_member', (msg) => {
+    if (msg.left_chat_member.id === bot.bot.id) {
+        const chatId = msg.chat.id;
+        
+        db.run(`UPDATE groups SET is_active = 0 WHERE chat_id = ?`, [chatId], () => {
+            console.log(`❌ تم إزالة البوت من المجموعة: ${chatId}`);
+        });
+    }
 });
 
-module.exports = app;
+// ========== لوحة تحكم المطور ==========
+// إعدادات رفع الملفات
+const uploadDir = process.env.UPLOAD_PATH || './uploads';
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.mkdirSync(path.join(uploadDir, 'audio'), { recursive: true });
+    fs.mkdirSync(path.join(uploadDir, 'pdf'), { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const typeDir = path.join(uploadDir, file.fieldname);
+        cb(null, typeDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname);
+        cb(null, uniqueName);
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 50 * 1024 * 1024 }
+});
+
+// التحقق من التوكن
+function verifyToken(req, res, next) {
+    const token = req.headers['authorization']?.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: 'الوصول مرفوض' });
+    }
+    
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret_key');
+        req.user = decoded;
+        next();
+    } catch (error) {
+        res.status(400).json({ error: 'توكن غير صالح' });
+    }
+}
+
+// تسجيل الدخول
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    
+    db.get(`SELECT * FROM users WHERE username = ?`, [username], async (err, user) => {
+        if (!user) {
+            return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
+        }
+        
+        const isValid = await bcrypt.compare(password, user.password_hash);
+        
+        if (isValid) {
+            const token = jwt.sign(
+                { id: user.id, username: user.username, role: user.role },
+                process.env.JWT_SECRET || 'secret_key',
+                { expiresIn: '24h' }
+            );
+            
+            res.json({ 
+                success: true, 
+                token,
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    role: user.role
+                }
+            });
+        } else {
+            res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
+        }
+    });
+});
+
+// الحصول على الإحصائيات
+app.get('/api/stats', verifyToken, (req, res) => {
+    const stats = {};
+    
+    const queries = [
+        { key: 'totalGroups', query: `SELECT COUNT(*) as count FROM groups` },
+        { key: 'activeGroups', query: `SELECT COUNT(*) as count FROM groups WHERE is_active = 1 AND bot_enabled = 1` },
+        { key: 'totalAdkar', query: `SELECT COUNT(*) as count FROM adkar` },
+        { key: 'activeAdkar', query: `SELECT COUNT(*) as count FROM adkar WHERE is_active = 1` },
+        { key: 'todaySent', query: `SELECT COUNT(*) as count FROM broadcast_logs WHERE date(sent_at) = date('now') AND status = 'success'` },
+        { key: 'totalSent', query: `SELECT COUNT(*) as count FROM broadcast_logs WHERE status = 'success'` }
+    ];
+    
+    let completed = 0;
+    queries.forEach(({ key, query }) => {
+        db.get(query, (err, row) => {
+            stats[key] = row ? row.count : 0;
+            completed++;
+            
+            if (completed === queries.length) {
+                res.json(stats);
+            }
+        });
+    });
+});
+
+// إدارة الأذكار
+app.get('/api/adkar', verifyToken, (req, res) => {
+    const { category, active } = req.query;
+    
+    let query = `SELECT * FROM adkar`;
+    const params = [];
+    
+    if (category || active !== undefined) {
+        query += ` WHERE`;
+        const conditions = [];
+        
+        if (category) {
+            conditions.push(`category = ?`);
+            params.push(category);
+        }
+        
+        if (active !== undefined) {
+            conditions.push(`is_active = ?`);
+            params.push(active === 'true' ? 1 : 0);
+        }
+        
+        query += ` ` + conditions.join(' AND ');
+    }
+    
+    query += ` ORDER BY priority, created_at DESC`;
+    
+    db.all(query, params, (err, adkar) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(adkar);
+    });
+});
+
+app.post('/api/adkar', verifyToken, upload.fields([
+    { name: 'audio', maxCount: 1 },
+    { name: 'pdf', maxCount: 1 }
+]), (req, res) => {
+    const {
+        title,
+        content,
+        category,
+        type = 'text',
+        schedule_type = 'daily',
+        schedule_time,
+        days_of_week = '[0,1,2,3,4,5,6]',
+        repeat_interval = 60,
+        is_active = 1,
+        priority = 1
+    } = req.body;
+    
+    let file_path = null;
+    if (req.files?.audio) {
+        file_path = req.files.audio[0].path;
+    } else if (req.files?.pdf) {
+        file_path = req.files.pdf[0].path;
+    }
+    
+    db.run(`INSERT INTO adkar 
+        (title, content, category, type, file_path, schedule_type, schedule_time, 
+         days_of_week, repeat_interval, is_active, priority, created_by) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            title, content, category, type, file_path, 
+            schedule_type, schedule_time || '00:00',
+            days_of_week, repeat_interval,
+            is_active, priority, req.user.username
+        ],
+        function(err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ 
+                success: true, 
+                id: this.lastID,
+                message: 'تم إضافة الذكر بنجاح'
+            });
+        });
+});
+
+app.put('/api/adkar/:id', verifyToken, (req, res) => {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    const fields = [];
+    const values = [];
+    
+    Object.keys(updates).forEach(key => {
+        if (key !== 'id') {
+            fields.push(`${key} = ?`);
+            values.push(updates[key]);
+        }
+    });
+    
+    values.push(id);
+    
+    db.run(`UPDATE adkar SET ${fields.join(', ')} WHERE id = ?`, values, (err) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true, message: 'تم تحديث الذكر بنجاح' });
+    });
+});
+
+app.delete('/api/adkar/:id', verifyToken, (req, res) => {
+    const { id } = req.params;
+    
+    db.run(`DELETE FROM adkar WHERE id = ?`, [id], (err) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true, message: 'تم حذف الذكر بنجاح' });
+    });
+});
+
+// إدارة المجموعات
+app.get('/api/groups', verifyToken, (req, res) => {
+    const { page = 1, limit = 20, status } = req.query;
+    const offset = (page - 1) * limit;
+    
+    let whereClause = '';
+    const params = [];
+    
+    if (status === 'active') {
+        whereClause = 'WHERE is_active = 1 AND bot_enabled = 1';
+    } else if (status === 'inactive') {
+        whereClause = 'WHERE is_active = 0 OR bot_enabled = 0';
+    }
+    
+    db.all(`SELECT * FROM groups ${whereClause} ORDER BY join_date DESC LIMIT ? OFFSET ?`, 
+        [...params, limit, offset], (err, groups) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            db.get(`SELECT COUNT(*) as total FROM groups ${whereClause}`, params, (err, count) => {
+                res.json({
+                    groups,
+                    pagination: {
+                        page: parseInt(page),
+                        limit: parseInt(limit),
+                        total: count.total,
+                        pages: Math.ceil(count.total / limit)
+                    }
+                });
+            });
+        });
+});
+
+// البث الفوري
+app.post('/api/broadcast', verifyToken, upload.fields([
+    { name: 'audio', maxCount: 1 },
+    { name: 'pdf', maxCount: 1 }
+]), async (req, res) => {
+    const { message, type = 'text' } = req.body;
+    
+    let file_path = null;
+    if (req.files?.audio) {
+        file_path = req.files.audio[0].path;
+    } else if (req.files?.pdf) {
+        file_path = req.files.pdf[0].path;
+    }
+    
+    // جلب جميع المجموعات النشطة
+    db.all(`SELECT chat_id FROM groups WHERE bot_enabled = 1 AND is_active = 1`, 
+        async (err, groups) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            // حفظ في جدول البث
+            db.run(`INSERT INTO broadcasts (message, type, file_path, total_count) VALUES (?, ?, ?, ?)`,
+                [message, type, file_path, groups.length], 
+                async function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    
+                    const broadcastId = this.lastID;
+                    
+                    // إرسال البث لكل مجموعة
+                    let sentCount = 0;
+                    for (const group of groups) {
+                        try {
+                            if (type === 'audio' && file_path) {
+                                await bot.sendAudio(group.chat_id, file_path, {
+                                    caption: message,
+                                    parse_mode: 'HTML'
+                                });
+                            } else if (type === 'pdf' && file_path) {
+                                await bot.sendDocument(group.chat_id, file_path, {
+                                    caption: message,
+                                    parse_mode: 'HTML'
+                                });
+                            } else {
+                                await bot.sendMessage(group.chat_id, message, {
+                                    parse_mode: 'HTML'
+                                });
+                            }
+                            sentCount++;
+                            
+                            // تحديث العدد المرسل
+                            db.run(`UPDATE broadcasts SET sent_count = ? WHERE id = ?`,
+                                [sentCount, broadcastId]);
+                            
+                            // تأخير لتجنب الحظر
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            
+                        } catch (error) {
+                            console.error(`❌ خطأ في البث لـ ${group.chat_id}:`, error.message);
+                        }
+                    }
+                    
+                    // تحديث حالة البث
+                    db.run(`UPDATE broadcasts SET status = 'completed' WHERE id = ?`,
+                        [broadcastId]);
+                    
+                    res.json({ 
+                        success: true, 
+                        message: `تم إرسال البث إلى ${sentCount} من ${groups.length} مجموعة`,
+                        sent: sentCount,
+                        total: groups.length
+                    });
+                });
+        });
+});
+
+// الحصول على سجلات النشر
+app.get('/api/logs', verifyToken, (req, res) => {
+    const { days = 7 } = req.query;
+    
+    const query = `
+        SELECT 
+            date(sent_at) as date,
+            COUNT(*) as total,
+            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+        FROM broadcast_logs 
+        WHERE sent_at >= date('now', ? || ' days')
+        GROUP BY date(sent_at)
+        ORDER BY date(sent_at) DESC
+    `;
+    
+    db.all(query, [`-${days}`], (err, logs) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(logs);
+    });
+});
+
+// واجهة لوحة التحكم
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+app.get('/admin/*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+// صفحة رئيسية بسيطة
+app.get('/', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>بوت الأذكار التلقائي</title>
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                h1 { color: #2c3e50; }
+                .btn { display: inline-block; padding: 10px 20px; margin: 10px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }
+                .stats { display: flex; justify-content: space-around; margin: 30px 0; }
+                .stat-box { background: #ecf0f1; padding: 20px; border-radius: 5px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🕌 بوت نشر الأذكار التلقائي</h1>
+                <p>بوت تلقائي لنشر الأذكار في مجموعات التلجرام حسب إعدادات المطور المركزية</p>
+                
+                <div class="stats">
+                    <div class="stat-box">
+                        <h3>المجموعات</h3>
+                        <p id="groupsCount">0</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3>الأذكار</h3>
+                        <p id="adkarCount">0</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3>النشر اليومي</h3>
+                        <p id="todayCount">0</p>
+                    </div>
+                </div>
+                
+                <div>
+                    <a href="/admin" class="btn">👑 لوحة تحكم المطور</a>
+                    <a href="https://t.me/your_bot_username" class="btn" target="_blank">🤖 إضافة البوت لمجموعتك</a>
+                </div>
+                
+                <div style="margin-top: 30px; text-align: right;">
+                    <h3>كيفية الاستخدام:</h3>
+                    <ol style="text-align: right;">
+                        <li>أضف البوت لمجموعتك على تلجرام</li>
+                        <li>البوت سيرسل رسالة ترحيب تلقائياً</li>
+                        <li>استخدم /enable_bot لتفعيل البوت</li>
+                        <li>استخدم /disable_bot لإيقاف البوت مؤقتاً</li>
+                        <li>إعدادات النشر تتم من لوحة تحكم المطور</li>
+                    </ol>
+                </div>
+            </div>
+            
+            <script>
+                async function loadStats() {
+                    try {
+                        const response = await fetch('/api/stats');
+                        const stats = await response.json();
+                        
+                        document.getElementById('groupsCount').textContent = stats.activeGroups;
+                        document.getElementById('adkarCount').textContent = stats.activeAdkar;
+                        document.getElementById('todayCount').textContent = stats.todaySent;
+                    } catch (error) {
+                        console.error('خطأ في تحميل الإحصائيات:', error);
+                    }
+                }
+                
+                loadStats();
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+// صفحة الصحة للتحقق
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        bot: bot ? 'connected' : 'disconnected',
+        database: 'connected'
+    });
+});
+
+// بدء الخادم
+app.listen(PORT, () => {
+    console.log(`🚀 الخادم يعمل على http://localhost:${PORT}`);
+    console.log(`👑 لوحة تحكم المطور: http://localhost:${PORT}/admin`);
+    console.log(`📊 إحصائيات مباشرة: http://localhost:${PORT}`);
+    console.log(`✅ البوت جاهز للاستخدام!`);
+});
