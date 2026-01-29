@@ -609,27 +609,31 @@ bot.on('my_chat_member', async (update) => {
                         return;
                     }
                     
-                    // تحديث العنوان في حالة المجموعة موجودة مسبقاً
-                    db.run(`UPDATE groups SET title = ? WHERE chat_id = ?`, [title, chatId], (updateErr) => {
-                        if (updateErr) {
-                            console.error('❌ خطأ في تحديث عنوان المجموعة:', updateErr);
+                    // تحديث العنوان فقط في حالة المجموعة موجودة مسبقاً (عندما لا يتم إدخال صف جديد)
+                    if (this.changes === 0) {
+                        db.run(`UPDATE groups SET title = ? WHERE chat_id = ?`, [title, chatId], (updateErr) => {
+                            if (updateErr) {
+                                console.error('❌ خطأ في تحديث عنوان المجموعة:', updateErr);
+                            }
+                        });
+                    }
+                    
+                    // إرسال رسالة ترحيب تطلب من المستخدم النقر على /start
+                    (async () => {
+                        try {
+                            const welcomeMsg = `🕌 *مرحباً بكم في ${title}* 🕌\n\n` +
+                                `شكراً لإضافة بوت الأذكار!\n\n` +
+                                `لتفعيل البوت والبدء في استخدامه، يرجى النقر على الأمر:\n` +
+                                `/start`;
+                            
+                            await bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
+                            console.log(`✅ تم إرسال رسالة الترحيب للمجموعة: ${title} (${chatId})`);
+                            
+                        } catch (error) {
+                            console.error('❌ خطأ في إرسال رسالة الترحيب:', chatId, error.message);
                         }
-                    });
+                    })();
                 });
-            
-            // إرسال رسالة ترحيب تطلب من المستخدم النقر على /start
-            try {
-                const welcomeMsg = `🕌 *مرحباً بكم في ${title}* 🕌\n\n` +
-                    `شكراً لإضافة بوت الأذكار!\n\n` +
-                    `لتفعيل البوت والبدء في استخدامه، يرجى النقر على الأمر:\n` +
-                    `/start`;
-                
-                await bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
-                console.log(`✅ تم إرسال رسالة الترحيب للمجموعة: ${title} (${chatId})`);
-                
-            } catch (error) {
-                console.error('❌ خطأ في إرسال رسالة الترحيب:', chatId, error.message);
-            }
         }
     } catch (error) {
         console.error('❌ خطأ في معالجة my_chat_member:', error);
