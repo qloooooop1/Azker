@@ -1,7 +1,7 @@
 {
-  "name": "telegram-adkar-bot-advanced",
-  "version": "1.0.0",
-  "description": "بوت أذكار متقدم مع إدارة الأقسام والملفات",
+  "name": "telegram-adkar-bot",
+  "version": "2.0.0",
+  "description": "بوت أذكار تلجرام مع لوحة تحكم متكاملة",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
