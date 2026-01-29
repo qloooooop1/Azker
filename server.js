@@ -657,9 +657,9 @@ app.get('/api/groups', (req, res) => {
     });
 });
 
-// ========== لوحة التحكم المتكاملة ==========
+// ========== لوحة التحكم ==========
 app.get('/admin', (req, res) => {
-    const html = `
+    res.send(`
     <!DOCTYPE html>
     <html dir="rtl" lang="ar">
     <head>
@@ -703,7 +703,6 @@ app.get('/admin', (req, res) => {
             
             .nav-link:hover, .nav-link.active {
                 background: rgba(255, 255, 255, 0.15);
-                transform: translateX(-5px);
             }
             
             .stat-card {
@@ -713,11 +712,6 @@ app.get('/admin', (req, res) => {
                 margin-bottom: 20px;
                 box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
                 border: none;
-                transition: transform 0.3s;
-            }
-            
-            .stat-card:hover {
-                transform: translateY(-5px);
             }
             
             .stat-icon {
@@ -750,34 +744,6 @@ app.get('/admin', (req, res) => {
                 justify-content: center;
                 margin: 2px;
                 border: none;
-            }
-            
-            .modal-xl-custom {
-                max-width: 800px;
-            }
-            
-            .day-selector {
-                display: flex;
-                gap: 5px;
-                margin: 10px 0;
-            }
-            
-            .day-btn {
-                width: 40px;
-                height: 40px;
-                border-radius: 50%;
-                border: 2px solid #dee2e6;
-                background: white;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-            }
-            
-            .day-btn.selected {
-                background: var(--primary-color);
-                color: white;
-                border-color: var(--primary-color);
             }
             
             @media (max-width: 768px) {
@@ -821,18 +787,7 @@ app.get('/admin', (req, res) => {
                         <i class="bi bi-people me-2"></i>المجموعات
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#" onclick="showSection('settings')">
-                        <i class="bi bi-gear me-2"></i>الإعدادات
-                    </a>
-                </li>
             </ul>
-            
-            <div class="position-absolute bottom-0 start-0 end-0 p-3 text-center">
-                <small class="text-white-50" id="botStatus">🟢 البوت يعمل</small>
-                <br>
-                <small class="text-white-50" id="currentTime"></small>
-            </div>
         </div>
 
         <!-- المحتوى الرئيسي -->
@@ -879,36 +834,10 @@ app.get('/admin', (req, res) => {
                         </div>
                     </div>
                 </div>
-                
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <div class="stat-card">
-                            <h5><i class="bi bi-lightning-charge"></i> الإجراءات السريعة</h5>
-                            <div class="d-flex gap-2 mt-3">
-                                <button class="btn btn-primary" onclick="showCategoryModal()">
-                                    <i class="bi bi-plus-circle"></i> قسم جديد
-                                </button>
-                                <button class="btn btn-success" onclick="showAdkarModal()">
-                                    <i class="bi bi-plus-circle"></i> ذكر جديد
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="stat-card">
-                            <h5><i class="bi bi-info-circle"></i> معلومات النظام</h5>
-                            <div class="mt-3">
-                                <p><i class="bi bi-check-circle text-success"></i> البوت يعمل بشكل طبيعي</p>
-                                <p><i class="bi bi-check-circle text-success"></i> قاعدة البيانات متصلة</p>
-                                <p><i class="bi bi-check-circle text-success"></i> النظام جاهز للنشر</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <!-- إدارة الأقسام -->
-            <div id="categoriesSection" class="d-none">
+            <div id="categoriesSection" style="display: none;">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2><i class="bi bi-bookmarks"></i> إدارة الأقسام</h2>
                     <button class="btn btn-primary" onclick="showCategoryModal()">
@@ -936,7 +865,7 @@ app.get('/admin', (req, res) => {
             </div>
 
             <!-- إدارة الأذكار -->
-            <div id="adkarSection" class="d-none">
+            <div id="adkarSection" style="display: none;">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2><i class="bi bi-journal-text"></i> إدارة الأذكار</h2>
                     <div>
@@ -969,7 +898,7 @@ app.get('/admin', (req, res) => {
             </div>
 
             <!-- المجموعات -->
-            <div id="groupsSection" class="d-none">
+            <div id="groupsSection" style="display: none;">
                 <h2 class="mb-4"><i class="bi bi-people"></i> المجموعات النشطة</h2>
                 <div class="table-responsive">
                     <table class="table table-hover">
@@ -984,31 +913,6 @@ app.get('/admin', (req, res) => {
                             <!-- سيتم ملؤها -->
                         </tbody>
                     </table>
-                </div>
-            </div>
-
-            <!-- الإعدادات -->
-            <div id="settingsSection" class="d-none">
-                <h2 class="mb-4"><i class="bi bi-gear"></i> إعدادات النظام</h2>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="stat-card">
-                            <h5>إعدادات البوت</h5>
-                            <div class="mb-3">
-                                <label class="form-label">وقت النشر الافتراضي</label>
-                                <input type="time" class="form-control" value="12:00">
-                            </div>
-                            <button class="btn btn-primary">حفظ الإعدادات</button>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="stat-card">
-                            <h5>حول النظام</h5>
-                            <p>بوت الأذكار المتقدم</p>
-                            <p>الإصدار: 2.0.0</p>
-                            <p>المطور: فريق التطوير</p>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -1082,7 +986,7 @@ app.get('/admin', (req, res) => {
 
         <!-- مودال إضافة/تعديل ذكر -->
         <div class="modal fade" id="adkarModal" tabindex="-1">
-            <div class="modal-dialog modal-xl-custom">
+            <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="adkarModalTitle">إضافة ذكر جديد</h5>
@@ -1092,100 +996,52 @@ app.get('/admin', (req, res) => {
                         <form id="adkarForm">
                             <input type="hidden" id="adkarId">
                             
+                            <div class="mb-3">
+                                <label class="form-label">العنوان</label>
+                                <input type="text" class="form-control" id="adkarTitle" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">النص</label>
+                                <textarea class="form-control" id="adkarContent" rows="4" required></textarea>
+                            </div>
+                            
                             <div class="row">
-                                <div class="col-md-8">
+                                <div class="col-md-6">
                                     <div class="mb-3">
-                                        <label class="form-label">العنوان</label>
-                                        <input type="text" class="form-control" id="adkarTitle" required>
-                                    </div>
-                                    
-                                    <div class="mb-3">
-                                        <label class="form-label">النص</label>
-                                        <textarea class="form-control" id="adkarContent" rows="4" required></textarea>
-                                    </div>
-                                    
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label class="form-label">القسم</label>
-                                                <select class="form-select" id="adkarCategory" required>
-                                                    <option value="">اختر قسم</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label class="form-label">نوع المحتوى</label>
-                                                <select class="form-select" id="adkarContentType" onchange="toggleFileInput()">
-                                                    <option value="text">نص فقط</option>
-                                                    <option value="audio">صوت</option>
-                                                    <option value="image">صورة</option>
-                                                    <option value="pdf">ملف PDF</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="mb-3 d-none" id="fileInputSection">
-                                        <label class="form-label" id="fileInputLabel">رفع ملف</label>
-                                        <input type="file" class="form-control" id="adkarFile">
+                                        <label class="form-label">القسم</label>
+                                        <select class="form-select" id="adkarCategory" required>
+                                            <option value="">اختر قسم</option>
+                                        </select>
                                     </div>
                                 </div>
-                                
-                                <div class="col-md-4">
-                                    <div class="card">
-                                        <div class="card-body">
-                                            <h6>إعدادات النشر</h6>
-                                            
-                                            <div class="mb-3">
-                                                <label class="form-label">نوع الجدولة</label>
-                                                <select class="form-select" id="adkarScheduleType" onchange="toggleDaysSelector()">
-                                                    <option value="daily">يومي</option>
-                                                    <option value="weekly">أسبوعي</option>
-                                                </select>
-                                            </div>
-                                            
-                                            <div class="mb-3 d-none" id="daysSelectorSection">
-                                                <label class="form-label">أيام النشر</label>
-                                                <div class="day-selector">
-                                                    <button type="button" class="day-btn" data-day="0" onclick="toggleDay(this)">أ</button>
-                                                    <button type="button" class="day-btn" data-day="1" onclick="toggleDay(this)">إ</button>
-                                                    <button type="button" class="day-btn" data-day="2" onclick="toggleDay(this)">ث</button>
-                                                    <button type="button" class="day-btn" data-day="3" onclick="toggleDay(this)">أ</button>
-                                                    <button type="button" class="day-btn" data-day="4" onclick="toggleDay(this)">خ</button>
-                                                    <button type="button" class="day-btn" data-day="5" onclick="toggleDay(this)">ج</button>
-                                                    <button type="button" class="day-btn" data-day="6" onclick="toggleDay(this)">س</button>
-                                                </div>
-                                                <input type="hidden" id="selectedDays" value="[0,1,2,3,4,5,6]">
-                                            </div>
-                                            
-                                            <div class="mb-3">
-                                                <label class="form-label">وقت النشر</label>
-                                                <input type="time" class="form-control" id="adkarTime" required value="12:00">
-                                            </div>
-                                            
-                                            <div class="row">
-                                                <div class="col-md-6">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">الأولوية</label>
-                                                        <select class="form-select" id="adkarPriority">
-                                                            <option value="1">عادي</option>
-                                                            <option value="2">متوسط</option>
-                                                            <option value="3">عالي</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <div class="mb-3">
-                                                        <label class="form-label">الحالة</label>
-                                                        <select class="form-select" id="adkarActive">
-                                                            <option value="1">نشط</option>
-                                                            <option value="0">غير نشط</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">نوع المحتوى</label>
+                                        <select class="form-select" id="adkarContentType">
+                                            <option value="text">نص فقط</option>
+                                            <option value="audio">صوت</option>
+                                            <option value="image">صورة</option>
+                                            <option value="pdf">ملف PDF</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">وقت النشر</label>
+                                        <input type="time" class="form-control" id="adkarTime" required value="12:00">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">الحالة</label>
+                                        <select class="form-select" id="adkarActive">
+                                            <option value="1">نشط</option>
+                                            <option value="0">غير نشط</option>
+                                        </select>
                                     </div>
                                 </div>
                             </div>
@@ -1201,18 +1057,10 @@ app.get('/admin', (req, res) => {
 
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
         <script>
-            // متغيرات عامة
-            let categories = [];
-            let currentCategoryId = null;
-            let currentAdkarId = null;
-            
             // تحديث الوقت
             function updateTime() {
                 const now = new Date();
                 const timeString = now.toLocaleTimeString('ar-SA');
-                const dateString = now.toLocaleDateString('ar-SA');
-                
-                document.getElementById('currentTime').textContent = timeString + ' ' + dateString;
                 document.getElementById('currentTime2').textContent = timeString;
             }
             
@@ -1233,9 +1081,10 @@ app.get('/admin', (req, res) => {
             // إظهار وإخفاء الأقسام
             function showSection(section) {
                 // إخفاء جميع الأقسام
-                ['dashboard', 'categories', 'adkar', 'groups', 'settings'].forEach(sec => {
-                    document.getElementById(sec + 'Section').classList.add('d-none');
-                });
+                document.getElementById('dashboardSection').style.display = 'none';
+                document.getElementById('categoriesSection').style.display = 'none';
+                document.getElementById('adkarSection').style.display = 'none';
+                document.getElementById('groupsSection').style.display = 'none';
                 
                 // إزالة النشط من جميع الروابط
                 document.querySelectorAll('.nav-link').forEach(link => {
@@ -1243,14 +1092,15 @@ app.get('/admin', (req, res) => {
                 });
                 
                 // إظهار القسم المطلوب
-                document.getElementById(section + 'Section').classList.remove('d-none');
+                document.getElementById(section + 'Section').style.display = 'block';
                 
                 // تفعيل الرابط
-                const activeLink = Array.from(document.querySelectorAll('.nav-link')).find(link => 
-                    link.getAttribute('onclick')?.includes(`'${section}'`)
-                );
-                if (activeLink) {
-                    activeLink.classList.add('active');
+                const links = document.querySelectorAll('.nav-link');
+                for (let link of links) {
+                    if (link.getAttribute('onclick') && link.getAttribute('onclick').includes(section)) {
+                        link.classList.add('active');
+                        break;
+                    }
                 }
                 
                 // تحميل البيانات حسب القسم
@@ -1268,41 +1118,39 @@ app.get('/admin', (req, res) => {
             async function loadCategories() {
                 try {
                     const response = await fetch('/api/categories');
-                    categories = await response.json();
+                    const categories = await response.json();
                     
                     const tbody = document.getElementById('categoriesTable');
                     tbody.innerHTML = '';
                     
                     categories.forEach(category => {
                         const row = document.createElement('tr');
-                        row.innerHTML = \`
-                            <td>\${category.id}</td>
-                            <td>
-                                <span class="category-badge" style="background: \${category.color}20; color: \${category.color};">
-                                    \${category.icon} \${category.name}
-                                </span>
-                            </td>
-                            <td>\${category.description || '-'}</td>
-                            <td>\${category.sort_order}</td>
-                            <td>
-                                <span class="badge \${category.is_active ? 'bg-success' : 'bg-secondary'}">
-                                    \${category.is_active ? 'نشط' : 'غير نشط'}
-                                </span>
-                            </td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-primary action-btn" onclick="editCategory(\${category.id})" title="تعديل">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteCategory(\${category.id})" title="حذف">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </td>
-                        \`;
+                        row.innerHTML = '<td>' + category.id + '</td>' +
+                            '<td>' +
+                            '<span class="category-badge" style="background: ' + category.color + '20; color: ' + category.color + ';">' +
+                            category.icon + ' ' + category.name +
+                            '</span>' +
+                            '</td>' +
+                            '<td>' + (category.description || '-') + '</td>' +
+                            '<td>' + category.sort_order + '</td>' +
+                            '<td>' +
+                            '<span class="badge ' + (category.is_active ? 'bg-success' : 'bg-secondary') + '">' +
+                            (category.is_active ? 'نشط' : 'غير نشط') +
+                            '</span>' +
+                            '</td>' +
+                            '<td>' +
+                            '<button class="btn btn-sm btn-outline-primary action-btn" onclick="editCategory(' + category.id + ')" title="تعديل">' +
+                            '<i class="bi bi-pencil"></i>' +
+                            '</button>' +
+                            '<button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteCategory(' + category.id + ')" title="حذف">' +
+                            '<i class="bi bi-trash"></i>' +
+                            '</button>' +
+                            '</td>';
                         tbody.appendChild(row);
                     });
                 } catch (error) {
                     console.error('خطأ في تحميل الأقسام:', error);
-                    showToast('خطأ في تحميل الأقسام', 'danger');
+                    alert('خطأ في تحميل الأقسام');
                 }
             }
             
@@ -1310,7 +1158,7 @@ app.get('/admin', (req, res) => {
             async function loadCategoriesForSelect() {
                 try {
                     const response = await fetch('/api/categories');
-                    categories = await response.json();
+                    const categories = await response.json();
                     
                     const filterSelect = document.getElementById('categoryFilter');
                     const adkarSelect = document.getElementById('adkarCategory');
@@ -1319,8 +1167,8 @@ app.get('/admin', (req, res) => {
                     adkarSelect.innerHTML = '<option value="">اختر قسم</option>';
                     
                     categories.forEach(cat => {
-                        filterSelect.innerHTML += \`<option value="\${cat.id}">\${cat.name}</option>\`;
-                        adkarSelect.innerHTML += \`<option value="\${cat.id}">\${cat.name}</option>\`;
+                        filterSelect.innerHTML += '<option value="' + cat.id + '">' + cat.name + '</option>';
+                        adkarSelect.innerHTML += '<option value="' + cat.id + '">' + cat.name + '</option>';
                     });
                 } catch (error) {
                     console.error('خطأ في تحميل الأقسام:', error);
@@ -1333,7 +1181,7 @@ app.get('/admin', (req, res) => {
                     const categoryFilter = document.getElementById('categoryFilter').value;
                     let url = '/api/adkar';
                     if (categoryFilter) {
-                        url += \`?category_id=\${categoryFilter}\`;
+                        url += '?category_id=' + categoryFilter;
                     }
                     
                     const response = await fetch(url);
@@ -1349,56 +1197,37 @@ app.get('/admin', (req, res) => {
                         else if (item.content_type === 'image') typeIcon = '🖼️';
                         else if (item.content_type === 'pdf') typeIcon = '📄';
                         
-                        // تحديد أيام الجدولة
-                        let scheduleText = 'يومي';
-                        if (item.schedule_type === 'weekly') {
-                            try {
-                                const days = JSON.parse(item.schedule_days || '[]');
-                                const dayNames = ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];
-                                const selectedDays = days.map(d => dayNames[d]).join('، ');
-                                if (selectedDays) scheduleText = selectedDays;
-                            } catch (e) {
-                                scheduleText = 'يومي';
-                            }
-                        }
-                        
                         const row = document.createElement('tr');
-                        row.innerHTML = \`
-                            <td>
-                                <strong>\${item.title}</strong>
-                                <br>
-                                <small class="text-muted">\${item.content.substring(0, 50)}...</small>
-                            </td>
-                            <td>
-                                <span class="badge bg-light text-dark">
-                                    \${item.category_icon || '📖'} \${item.category_name || 'عام'}
-                                </span>
-                            </td>
-                            <td>\${typeIcon}</td>
-                            <td>
-                                \${item.schedule_time}
-                                <br>
-                                <small class="text-muted">\${scheduleText}</small>
-                            </td>
-                            <td>
-                                <span class="badge \${item.is_active ? 'bg-success' : 'bg-secondary'}">
-                                    \${item.is_active ? 'نشط' : 'غير نشط'}
-                                </span>
-                            </td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-primary action-btn" onclick="editAdkar(\${item.id})" title="تعديل">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteAdkar(\${item.id})" title="حذف">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </td>
-                        \`;
+                        row.innerHTML = '<td>' +
+                            '<strong>' + item.title + '</strong>' +
+                            '<br>' +
+                            '<small class="text-muted">' + (item.content.substring(0, 50) || '') + '...</small>' +
+                            '</td>' +
+                            '<td>' +
+                            '<span class="badge bg-light text-dark">' +
+                            (item.category_icon || '📖') + ' ' + (item.category_name || 'عام') +
+                            '</span>' +
+                            '</td>' +
+                            '<td>' + typeIcon + '</td>' +
+                            '<td>' + item.schedule_time + '</td>' +
+                            '<td>' +
+                            '<span class="badge ' + (item.is_active ? 'bg-success' : 'bg-secondary') + '">' +
+                            (item.is_active ? 'نشط' : 'غير نشط') +
+                            '</span>' +
+                            '</td>' +
+                            '<td>' +
+                            '<button class="btn btn-sm btn-outline-primary action-btn" onclick="editAdkar(' + item.id + ')" title="تعديل">' +
+                            '<i class="bi bi-pencil"></i>' +
+                            '</button>' +
+                            '<button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteAdkar(' + item.id + ')" title="حذف">' +
+                            '<i class="bi bi-trash"></i>' +
+                            '</button>' +
+                            '</td>';
                         tbody.appendChild(row);
                     });
                 } catch (error) {
                     console.error('خطأ في تحميل الأذكار:', error);
-                    showToast('خطأ في تحميل الأذكار', 'danger');
+                    alert('خطأ في تحميل الأذكار');
                 }
             }
             
@@ -1413,19 +1242,17 @@ app.get('/admin', (req, res) => {
                     
                     groups.forEach(group => {
                         const row = document.createElement('tr');
-                        row.innerHTML = \`
-                            <td>
-                                <strong>\${group.title || 'مجموعة'}</strong>
-                                <br>
-                                <small class="text-muted">ID: \${group.chat_id}</small>
-                            </td>
-                            <td>
-                                <span class="badge \${group.bot_enabled ? 'bg-success' : 'bg-secondary'}">
-                                    \${group.bot_enabled ? 'نشط' : 'متوقف'}
-                                </span>
-                            </td>
-                            <td>\${new Date(group.created_at).toLocaleDateString('ar-SA')}</td>
-                        \`;
+                        row.innerHTML = '<td>' +
+                            '<strong>' + (group.title || 'مجموعة') + '</strong>' +
+                            '<br>' +
+                            '<small class="text-muted">ID: ' + group.chat_id + '</small>' +
+                            '</td>' +
+                            '<td>' +
+                            '<span class="badge ' + (group.bot_enabled ? 'bg-success' : 'bg-secondary') + '">' +
+                            (group.bot_enabled ? 'نشط' : 'متوقف') +
+                            '</span>' +
+                            '</td>' +
+                            '<td>' + new Date(group.created_at).toLocaleDateString('ar-SA') + '</td>';
                         tbody.appendChild(row);
                     });
                 } catch (error) {
@@ -1435,12 +1262,11 @@ app.get('/admin', (req, res) => {
             
             // إظهار مودال القسم
             function showCategoryModal(id = null) {
-                currentCategoryId = id;
                 const modal = new bootstrap.Modal(document.getElementById('categoryModal'));
                 
                 if (id) {
                     document.getElementById('categoryModalTitle').textContent = 'تعديل القسم';
-                    fetch(\`/api/categories/\${id}\`)
+                    fetch('/api/categories/' + id)
                         .then(response => response.json())
                         .then(category => {
                             document.getElementById('categoryId').value = category.id;
@@ -1453,7 +1279,7 @@ app.get('/admin', (req, res) => {
                         })
                         .catch(error => {
                             console.error('خطأ في تحميل بيانات القسم:', error);
-                            showToast('خطأ في تحميل بيانات القسم', 'danger');
+                            alert('خطأ في تحميل بيانات القسم');
                         });
                 } else {
                     document.getElementById('categoryModalTitle').textContent = 'إضافة قسم جديد';
@@ -1479,8 +1305,8 @@ app.get('/admin', (req, res) => {
                     is_active: parseInt(document.getElementById('categoryActive').value) || 1
                 };
                 
-                const id = currentCategoryId;
-                const url = id ? \`/api/categories/\${id}\` : '/api/categories';
+                const id = document.getElementById('categoryId').value;
+                const url = id ? '/api/categories/' + id : '/api/categories';
                 const method = id ? 'PUT' : 'POST';
                 
                 try {
@@ -1495,15 +1321,15 @@ app.get('/admin', (req, res) => {
                     if (response.ok) {
                         const modal = bootstrap.Modal.getInstance(document.getElementById('categoryModal'));
                         modal.hide();
-                        showToast(id ? 'تم تعديل القسم بنجاح' : 'تم إضافة القسم بنجاح', 'success');
+                        alert(id ? 'تم تعديل القسم بنجاح' : 'تم إضافة القسم بنجاح');
                         loadCategories();
                         loadCategoriesForSelect();
                     } else {
-                        showToast(data.error || 'حدث خطأ في الحفظ', 'danger');
+                        alert(data.error || 'حدث خطأ في الحفظ');
                     }
                 } catch (error) {
                     console.error('خطأ في حفظ القسم:', error);
-                    showToast('حدث خطأ في الحفظ', 'danger');
+                    alert('حدث خطأ في الحفظ');
                 }
             }
             
@@ -1514,37 +1340,36 @@ app.get('/admin', (req, res) => {
             
             // حذف القسم
             async function deleteCategory(id) {
-                if (confirm('هل أنت متأكد من حذف هذا القسم؟ سيتم حذف جميع الأذكار المرتبطة به.')) {
+                if (confirm('هل أنت متأكد من حذف هذا القسم؟')) {
                     try {
-                        const response = await fetch(\`/api/categories/\${id}\`, {
+                        const response = await fetch('/api/categories/' + id, {
                             method: 'DELETE'
                         });
                         
                         const data = await response.json();
                         
                         if (response.ok) {
-                            showToast('تم حذف القسم بنجاح', 'success');
+                            alert('تم حذف القسم بنجاح');
                             loadCategories();
                             loadCategoriesForSelect();
                             loadAdkar();
                         } else {
-                            showToast(data.error || 'حدث خطأ في الحذف', 'danger');
+                            alert(data.error || 'حدث خطأ في الحذف');
                         }
                     } catch (error) {
                         console.error('خطأ في حذف القسم:', error);
-                        showToast('حدث خطأ في الحذف', 'danger');
+                        alert('حدث خطأ في الحذف');
                     }
                 }
             }
             
             // إظهار مودال الذكر
             function showAdkarModal(id = null) {
-                currentAdkarId = id;
                 const modal = new bootstrap.Modal(document.getElementById('adkarModal'));
                 
                 if (id) {
                     document.getElementById('adkarModalTitle').textContent = 'تعديل ذكر';
-                    fetch(\`/api/adkar/\${id}\`)
+                    fetch('/api/adkar/' + id)
                         .then(response => response.json())
                         .then(adkar => {
                             document.getElementById('adkarId').value = adkar.id;
@@ -1552,130 +1377,44 @@ app.get('/admin', (req, res) => {
                             document.getElementById('adkarContent').value = adkar.content;
                             document.getElementById('adkarCategory').value = adkar.category_id || '';
                             document.getElementById('adkarContentType').value = adkar.content_type || 'text';
-                            document.getElementById('adkarScheduleType').value = adkar.schedule_type || 'daily';
                             document.getElementById('adkarTime').value = adkar.schedule_time || '12:00';
-                            document.getElementById('adkarPriority').value = adkar.priority || 1;
                             document.getElementById('adkarActive').value = adkar.is_active || 1;
-                            
-                            // تعبئة أيام الأسبوع
-                            try {
-                                const days = JSON.parse(adkar.schedule_days || '[0,1,2,3,4,5,6]');
-                                document.querySelectorAll('.day-btn').forEach(btn => {
-                                    const dayNum = parseInt(btn.dataset.day);
-                                    if (days.includes(dayNum)) {
-                                        btn.classList.add('selected');
-                                    } else {
-                                        btn.classList.remove('selected');
-                                    }
-                                });
-                                document.getElementById('selectedDays').value = JSON.stringify(days);
-                            } catch (e) {
-                                // إذا كان هناك خطأ في JSON، نختار جميع الأيام
-                                document.querySelectorAll('.day-btn').forEach(btn => {
-                                    btn.classList.add('selected');
-                                });
-                                document.getElementById('selectedDays').value = '[0,1,2,3,4,5,6]';
-                            }
-                            
-                            toggleFileInput();
-                            toggleDaysSelector();
                         })
                         .catch(error => {
                             console.error('خطأ في تحميل بيانات الذكر:', error);
-                            showToast('خطأ في تحميل بيانات الذكر', 'danger');
+                            alert('خطأ في تحميل بيانات الذكر');
                         });
                 } else {
                     document.getElementById('adkarModalTitle').textContent = 'إضافة ذكر جديد';
                     document.getElementById('adkarForm').reset();
                     document.getElementById('adkarId').value = '';
                     document.getElementById('adkarTime').value = '12:00';
-                    document.getElementById('adkarPriority').value = '1';
                     document.getElementById('adkarActive').value = '1';
-                    
-                    // اختيار جميع الأيام افتراضياً
-                    document.querySelectorAll('.day-btn').forEach(btn => {
-                        btn.classList.add('selected');
-                    });
-                    document.getElementById('selectedDays').value = '[0,1,2,3,4,5,6]';
-                    
-                    toggleFileInput();
-                    toggleDaysSelector();
                 }
                 
                 modal.show();
             }
             
-            // تبديل عرض حقل الملف
-            function toggleFileInput() {
-                const contentType = document.getElementById('adkarContentType').value;
-                const fileSection = document.getElementById('fileInputSection');
-                const fileInput = document.getElementById('adkarFile');
-                
-                if (contentType === 'text') {
-                    fileSection.classList.add('d-none');
-                    if (fileInput) fileInput.required = false;
-                } else {
-                    fileSection.classList.remove('d-none');
-                    if (fileInput) fileInput.required = true;
-                }
-            }
-            
-            // تبديل عرض اختيار الأيام
-            function toggleDaysSelector() {
-                const scheduleType = document.getElementById('adkarScheduleType').value;
-                const daysSection = document.getElementById('daysSelectorSection');
-                
-                if (scheduleType === 'daily') {
-                    daysSection.classList.add('d-none');
-                } else {
-                    daysSection.classList.remove('d-none');
-                }
-            }
-            
-            // تبديل اختيار اليوم
-            function toggleDay(element) {
-                element.classList.toggle('selected');
-                
-                const days = [];
-                document.querySelectorAll('.day-btn.selected').forEach(btn => {
-                    days.push(parseInt(btn.dataset.day));
-                });
-                
-                document.getElementById('selectedDays').value = JSON.stringify(days);
-            }
-            
             // حفظ الذكر
             async function saveAdkar() {
-                const formData = new FormData();
-                const id = currentAdkarId;
+                const formData = {
+                    category_id: document.getElementById('adkarCategory').value,
+                    title: document.getElementById('adkarTitle').value,
+                    content: document.getElementById('adkarContent').value,
+                    content_type: document.getElementById('adkarContentType').value,
+                    schedule_time: document.getElementById('adkarTime').value,
+                    is_active: parseInt(document.getElementById('adkarActive').value) || 1
+                };
                 
-                formData.append('category_id', document.getElementById('adkarCategory').value);
-                formData.append('title', document.getElementById('adkarTitle').value);
-                formData.append('content', document.getElementById('adkarContent').value);
-                formData.append('content_type', document.getElementById('adkarContentType').value);
-                formData.append('schedule_type', document.getElementById('adkarScheduleType').value);
-                formData.append('schedule_days', document.getElementById('selectedDays').value);
-                formData.append('schedule_time', document.getElementById('adkarTime').value);
-                formData.append('priority', document.getElementById('adkarPriority').value);
-                formData.append('is_active', document.getElementById('adkarActive').value);
-                
-                // إضافة الملف إذا تم اختياره
-                const fileInput = document.getElementById('adkarFile');
-                const contentType = document.getElementById('adkarContentType').value;
-                
-                if (fileInput && fileInput.files.length > 0 && contentType !== 'text') {
-                    const file = fileInput.files[0];
-                    const fieldName = contentType + '_file';
-                    formData.append(fieldName, file);
-                }
-                
-                const url = id ? \`/api/adkar/\${id}\` : '/api/adkar';
+                const id = document.getElementById('adkarId').value;
+                const url = id ? '/api/adkar/' + id : '/api/adkar';
                 const method = id ? 'PUT' : 'POST';
                 
                 try {
                     const response = await fetch(url, {
                         method: method,
-                        body: formData
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
                     });
                     
                     const data = await response.json();
@@ -1683,14 +1422,14 @@ app.get('/admin', (req, res) => {
                     if (response.ok) {
                         const modal = bootstrap.Modal.getInstance(document.getElementById('adkarModal'));
                         modal.hide();
-                        showToast(id ? 'تم تعديل الذكر بنجاح' : 'تم إضافة الذكر بنجاح', 'success');
+                        alert(id ? 'تم تعديل الذكر بنجاح' : 'تم إضافة الذكر بنجاح');
                         loadAdkar();
                     } else {
-                        showToast(data.error || 'حدث خطأ في الحفظ', 'danger');
+                        alert(data.error || 'حدث خطأ في الحفظ');
                     }
                 } catch (error) {
                     console.error('خطأ في حفظ الذكر:', error);
-                    showToast('حدث خطأ في الحفظ', 'danger');
+                    alert('حدث خطأ في الحفظ');
                 }
             }
             
@@ -1703,42 +1442,23 @@ app.get('/admin', (req, res) => {
             async function deleteAdkar(id) {
                 if (confirm('هل أنت متأكد من حذف هذا الذكر؟')) {
                     try {
-                        const response = await fetch(\`/api/adkar/\${id}\`, {
+                        const response = await fetch('/api/adkar/' + id, {
                             method: 'DELETE'
                         });
                         
                         const data = await response.json();
                         
                         if (response.ok) {
-                            showToast('تم حذف الذكر بنجاح', 'success');
+                            alert('تم حذف الذكر بنجاح');
                             loadAdkar();
                         } else {
-                            showToast(data.error || 'حدث خطأ في الحذف', 'danger');
+                            alert(data.error || 'حدث خطأ في الحذف');
                         }
                     } catch (error) {
                         console.error('خطأ في حذف الذكر:', error);
-                        showToast('حدث خطأ في الحذف', 'danger');
+                        alert('حدث خطأ في الحذف');
                     }
                 }
-            }
-            
-            // عرض رسالة تنبيه
-            function showToast(message, type = 'info') {
-                // إنشاء عنصر التوست
-                const toast = document.createElement('div');
-                toast.className = \`position-fixed top-0 start-50 translate-middle-x mt-3 alert alert-\${type} alert-dismissible fade show\`;
-                toast.style.zIndex = '9999';
-                toast.innerHTML = \`
-                    \${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                \`;
-                
-                document.body.appendChild(toast);
-                
-                // إزالة التوست بعد 5 ثواني
-                setTimeout(() => {
-                    toast.remove();
-                }, 5000);
             }
             
             // التهيئة عند تحميل الصفحة
@@ -1757,9 +1477,7 @@ app.get('/admin', (req, res) => {
         </script>
     </body>
     </html>
-    `;
-    
-    res.send(html);
+    `);
 });
 
 // ========== بدء الخادم ==========
