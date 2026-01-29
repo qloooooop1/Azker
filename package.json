@@ -1,12 +1,11 @@
 {
-  "name": "telegram-adkar-admin-bot",
+  "name": "telegram-adkar-bot",
   "version": "1.0.0",
-  "description": "بوت أذكار بلوحة تحكم مركزية للمطور",
-  "main": "index.js",
+  "description": "بوت تلجرام لنشر الأذكار مع لوحة تحكم مركزية للمطور",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "dashboard": "node admin-dashboard.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.61.0",
@@ -23,5 +22,8 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.20"
-  }
+  },
+  "keywords": ["telegram", "bot", "adkar", "islamic", "reminders"],
+  "author": "Developer",
+  "license": "MIT"
 }
