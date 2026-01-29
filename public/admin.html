@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم بوت الأذكار - المطور</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background: #f5f5f5; }
+        .sidebar { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            height: 100vh;
+            position: fixed;
+            width: 250px;
+        }
+        .main-content { margin-right: 250px; padding: 20px; }
+        .stat-card { 
+            background: white; 
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .nav-link { color: white !important; margin: 5px 0; }
+        .nav-link:hover { background: rgba(255,255,255,0.1); }
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- شاشة تسجيل الدخول -->
+    <div id="loginScreen" class="login-container">
+        <h3 class="text-center mb-4">👑 تسجيل دخول المطور</h3>
+        <div class="mb-3">
+            <label class="form-label">اسم المستخدم</label>
+            <input type="text" id="username" class="form-control" placeholder="أدخل اسم المستخدم">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">كلمة المرور</label>
+            <input type="password" id="password" class="form-control" placeholder="أدخل كلمة المرور">
+        </div>
+        <button onclick="login()" class="btn btn-primary w-100">تسجيل الدخول</button>
+        <div id="loginError" class="alert alert-danger mt-3 d-none"></div>
+    </div>
+
+    <!-- لوحة التحكم الرئيسية -->
+    <div id="dashboard" class="d-none">
+        <div class="sidebar">
+            <div class="p-3 text-center">
+                <h4><i class="fas fa-crown"></i> لوحة المطور</h4>
+                <hr>
+            </div>
+            <ul class="nav flex-column p-3">
+                <li><a href="#" onclick="showSection('dashboardHome')" class="nav-link"><i class="fas fa-home"></i> الرئيسية</a></li>
+                <li><a href="#" onclick="showSection('adkarManagement')" class="nav-link"><i class="fas fa-book"></i> إدارة الأذكار</a></li>
+                <li><a href="#" onclick="showSection('groupsManagement')" class="nav-link"><i class="fas fa-users"></i> إدارة المجموعات</a></li>
+                <li><a href="#" onclick="showSection('broadcast')" class="nav-link"><i class="fas fa-bullhorn"></i> نشر فوري</a></li>
+                <li><a href="#" onclick="showSection('scheduling')" class="nav-link"><i class="fas fa-clock"></i> الجدولة</a></li>
+                <li><a href="#" onclick="showSection('settings')" class="nav-link"><i class="fas fa-cog"></i> الإعدادات</a></li>
+                <li><a href="#" onclick="logout()" class="nav-link text-danger"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</a></li>
+            </ul>
+        </div>
+
+        <div class="main-content">
+            <!-- قسم الرئيسية -->
+            <div id="dashboardHome">
+                <h2><i class="fas fa-home"></i> لوحة التحكم المركزية</h2>
+                <hr>
+                <div class="row" id="statsCards">
+                    <!-- سيتم ملؤها بالإحصائيات -->
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="stat-card">
+                            <h5><i class="fas fa-chart-line"></i> النشاط اليومي</h5>
+                            <canvas id="dailyChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="stat-card">
+                            <h5><i class="fas fa-users"></i> المجموعات النشطة</h5>
+                            <ul class="list-group" id="activeGroups">
+                                <!-- سيتم ملؤها -->
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- قسم إدارة الأذكار -->
+            <div id="adkarManagement" class="d-none">
+                <h2><i class="fas fa-book"></i> إدارة الأذكار</h2>
+                <button class="btn btn-success mb-3" onclick="showAddAdkarModal()">
+                    <i class="fas fa-plus"></i> إضافة ذكر جديد
+                </button>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>العنوان</th>
+                                <th>النوع</th>
+                                <th>الجدولة</th>
+                                <th>الحالة</th>
+                                <th>الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adkarTable">
+                            <!-- سيتم ملؤها -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- قسم إدارة المجموعات -->
+            <div id="groupsManagement" class="d-none">
+                <h2><i class="fas fa-users"></i> إدارة المجموعات</h2>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>المجموعة</th>
+                                <th>المشرف</th>
+                                <th>تاريخ الإضافة</th>
+                                <th>الأذكار المرسلة</th>
+                                <th>الحالة</th>
+                                <th>الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="groupsTable">
+                            <!-- سيتم ملؤها -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- قسم النشر الفوري -->
+            <div id="broadcast" class="d-none">
+                <h2><i class="fas fa-bullhorn"></i> نشر رسالة لمرة واحدة</h2>
+                <div class="stat-card">
+                    <div class="mb-3">
+                        <label>نوع المحتوى</label>
+                        <select id="broadcastType" class="form-select" onchange="toggleBroadcastFields()">
+                            <option value="text">نص</option>
+                            <option value="audio">صوت</option>
+                            <option value="pdf">ملف PDF</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>الرسالة</label>
+                        <textarea id="broadcastMessage" class="form-control" rows="5" placeholder="أدخل الرسالة..."></textarea>
+                    </div>
+                    <div id="broadcastFileField" class="mb-3 d-none">
+                        <label>رفع ملف</label>
+                        <input type="file" id="broadcastFile" class="form-control">
+                    </div>
+                    <button onclick="sendBroadcast()" class="btn btn-primary">
+                        <i class="fas fa-paper-plane"></i> نشر لجميع المجموعات
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- مودال إضافة ذكر جديد -->
+    <div class="modal fade" id="addAdkarModal">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">إضافة ذكر جديد</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addAdkarForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label>عنوان الذكر</label>
+                                    <input type="text" class="form-control" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label>التصنيف</label>
+                                    <select class="form-select" required>
+                                        <option value="morning">أذكار الصباح</option>
+                                        <option value="evening">أذكار المساء</option>
+                                        <option value="prayer">أذكار الصلاة</option>
+                                        <option value="quran">آيات قرآنية</option>
+                                        <option value="general">أذكار متنوعة</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label>المحتوى</label>
+                            <textarea class="form-control" rows="4" required></textarea>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label>نوع الجدولة</label>
+                                    <select class="form-select" onchange="toggleScheduleFields()">
+                                        <option value="daily">يومي</option>
+                                        <option value="weekly">أسبوعي</option>
+                                        <option value="interval">بفاصل زمني</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label>وقت النشر</label>
+                                    <input type="time" class="form-control">
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="button" class="btn btn-primary">حفظ</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let token = null;
+        let developer = null;
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            const response = await fetch('/api/developer/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                token = data.token;
+                developer = data.developer;
+                document.getElementById('loginScreen').classList.add('d-none');
+                document.getElementById('dashboard').classList.remove('d-none');
+                loadDashboard();
+            } else {
+                document.getElementById('loginError').textContent = data.error;
+                document.getElementById('loginError').classList.remove('d-none');
+            }
+        }
+
+        function logout() {
+            token = null;
+            developer = null;
+            document.getElementById('dashboard').classList.add('d-none');
+            document.getElementById('loginScreen').classList.remove('d-none');
+        }
+
+        function showSection(sectionId) {
+            // إخفاء جميع الأقسام
+            document.querySelectorAll('.main-content > div').forEach(div => {
+                div.classList.add('d-none');
+            });
+            
+            // إظهار القسم المطلوب
+            document.getElementById(sectionId).classList.remove('d-none');
+        }
+
+        async function loadDashboard() {
+            // تحميل الإحصائيات
+            const statsRes = await fetch('/api/stats', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const stats = await statsRes.json();
+            
+            document.getElementById('statsCards').innerHTML = `
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>المجموعات الكلية</h6>
+                        <h3>${stats.totalGroups}</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>المجموعات النشطة</h6>
+                        <h3>${stats.activeGroups}</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>الأذكار المرسلة</h6>
+                        <h3>${stats.totalSent}</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>اليوم</h6>
+                        <h3>${stats.todaySent}</h3>
+                    </div>
+                </div>
+            `;
+            
+            // تحميل قائمة المجموعات النشطة
+            const groupsRes = await fetch('/api/groups?status=active&limit=5', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const groupsData = await groupsRes.json();
+            
+            let groupsHtml = '';
+            groupsData.groups.forEach(group => {
+                groupsHtml += `
+                    <li class="list-group-item">
+                        <strong>${group.title}</strong><br>
+                        <small>${new Date(group.join_date).toLocaleDateString('ar-SA')}</small>
+                    </li>
+                `;
+            });
+            document.getElementById('activeGroups').innerHTML = groupsHtml;
+            
+            // تحميل قائمة الأذكار
+            loadAdkar();
+            
+            // تحميل قائمة المجموعات
+            loadGroups();
+        }
+
+        async function loadAdkar() {
+            const res = await fetch('/api/adkar', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const adkar = await res.json();
+            
+            let tableHtml = '';
+            adkar.forEach((item, index) => {
+                tableHtml += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${item.title}</td>
+                        <td>
+                            ${item.type === 'audio' ? '<span class="badge bg-info">صوت</span>' : 
+                              item.type === 'pdf' ? '<span class="badge bg-warning">PDF</span>' : 
+                              '<span class="badge bg-primary">نص</span>'}
+                        </td>
+                        <td>${item.schedule_time || 'يومي'}</td>
+                        <td>
+                            ${item.is_active ? 
+                                '<span class="badge bg-success">نشط</span>' : 
+                                '<span class="badge bg-danger">غير نشط</span>'}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="editAdkar(${item.id})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteAdkar(${item.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            document.getElementById('adkarTable').innerHTML = tableHtml;
+        }
+
+        function showAddAdkarModal() {
+            new bootstrap.Modal(document.getElementById('addAdkarModal')).show();
+        }
+
+        // هنا يمكن إضافة المزيد من الوظائف
+    </script>
+</body>
+</html>
