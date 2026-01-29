@@ -30,18 +30,44 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 // ========== الحل النهائي لمشكلة 409 Conflict ==========
 let bot;
 let isPolling = false;
+let initializationInProgress = false;
+let retryCount = 0;
+const MAX_RETRY_ATTEMPTS = 5;
 
 function initializeBot() {
+    // منع تهيئة متعددة في نفس الوقت (singleton pattern)
+    if (initializationInProgress) {
+        console.log('⚠️ تهيئة البوت جارية بالفعل، تخطي المحاولة المكررة');
+        return;
+    }
+    
+    initializationInProgress = true;
+    console.log('🔧 بدء تهيئة البوت...');
+    
     // إيقاف أي polling سابق
     if (bot && isPolling) {
         try {
+            console.log('🛑 إيقاف polling السابق...');
             bot.stopPolling();
             isPolling = false;
+            // انتظار قصير للتأكد من إيقاف polling
+            setTimeout(() => continueInitialization(), 1000);
+            return;
         } catch (err) {
             console.log('⚠️ لم يكن هناك polling نشط');
         }
     }
     
+    // إزالة مرجع البوت القديم إذا كان موجوداً
+    if (bot) {
+        console.log('🧹 تنظيف مرجع البوت القديم...');
+        bot = null;
+    }
+    
+    continueInitialization();
+}
+
+function continueInitialization() {
     // إنشاء البوت جديد
     bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
         request: {
@@ -53,21 +79,37 @@ function initializeBot() {
         }
     });
     
+    console.log('✅ تم إنشاء instance جديد من البوت');
+    
     // معالجة أخطاء polling
     bot.on('polling_error', (error) => {
         console.error('❌ خطأ في polling:', error.message);
+        console.error('📋 تفاصيل الخطأ:', error.code || 'لا يوجد كود');
         
         if (error.message.includes('409 Conflict')) {
-            console.log('🔄 إعادة تهيئة البوت بعد اكتشاف نسخة أخرى...');
+            console.log('⚠️ تم اكتشاف 409 Conflict - نسخة أخرى من البوت تعمل');
+            console.log('🔄 إعادة تهيئة البوت بعد إيقاف النسخة الأخرى...');
             isPolling = false;
+            initializationInProgress = false;
             
-            // إعادة المحاولة بعد 10 ثواني
-            setTimeout(() => {
-                initializeBot();
-            }, 10000);
+            // زيادة وقت الانتظار مع كل محاولة فاشلة
+            const retryDelay = Math.min(10000 * (retryCount + 1), 60000);
+            retryCount++;
+            
+            if (retryCount <= MAX_RETRY_ATTEMPTS) {
+                console.log(`🔄 محاولة ${retryCount}/${MAX_RETRY_ATTEMPTS} بعد ${retryDelay/1000} ثانية...`);
+                setTimeout(() => {
+                    initializeBot();
+                }, retryDelay);
+            } else {
+                console.error('❌ فشلت جميع المحاولات. يرجى التأكد من عدم وجود نسخ أخرى من البوت تعمل.');
+                initializationInProgress = false; // إعادة تعيين الحالة للسماح بإعادة المحاولة يدوياً
+            }
         } else if (error.message.includes('ETELEGRAM')) {
-            console.log('🔄 إعادة المحاولة خلال 5 ثواني...');
+            console.log('🔄 خطأ في الاتصال بـ Telegram، إعادة المحاولة خلال 5 ثواني...');
             isPolling = false;
+            initializationInProgress = false;
+            retryCount = 0; // إعادة تعيين عداد المحاولات لأخطاء الاتصال
             
             setTimeout(() => {
                 initializeBot();
@@ -85,10 +127,15 @@ function initializeBot() {
             }
         });
         isPolling = true;
-        console.log('🤖 بوت التلجرام يعمل...');
+        initializationInProgress = false;
+        retryCount = 0; // إعادة تعيين عداد المحاولات عند النجاح
+        console.log('✅ بوت التلجرام يعمل بنجاح!');
+        console.log('📊 حالة polling: نشط');
     } catch (error) {
         console.error('❌ خطأ في بدء polling:', error.message);
         isPolling = false;
+        initializationInProgress = false;
+        retryCount = 0; // إعادة تعيين عداد المحاولات لأخطاء عامة
         
         // إعادة المحاولة بعد 5 ثواني
         setTimeout(() => {
@@ -98,22 +145,42 @@ function initializeBot() {
 }
 
 // بدء البوت
+console.log('='.repeat(50));
+console.log('🚀 بدء تطبيق بوت الأذكار');
+console.log('📅 التاريخ:', new Date().toLocaleString('ar-SA'));
+console.log('🔧 البيئة:', process.env.NODE_ENV || 'development');
+console.log('🌐 المنفذ:', PORT);
+console.log('='.repeat(50));
 initializeBot();
 
 // معالجة إغلاق التطبيق
 process.on('SIGINT', () => {
-    console.log('🛑 إيقاف البوت...');
+    console.log('\n🛑 تم استلام إشارة SIGINT - إيقاف البوت...');
+    console.log('📊 حالة polling قبل الإيقاف:', isPolling ? 'نشط' : 'متوقف');
     if (bot && isPolling) {
-        bot.stopPolling();
+        try {
+            bot.stopPolling();
+            console.log('✅ تم إيقاف polling بنجاح');
+        } catch (err) {
+            console.error('❌ خطأ في إيقاف polling:', err.message);
+        }
     }
+    console.log('👋 إنهاء البرنامج...');
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-    console.log('🛑 إيقاف البوت...');
+    console.log('\n🛑 تم استلام إشارة SIGTERM - إيقاف البوت...');
+    console.log('📊 حالة polling قبل الإيقاف:', isPolling ? 'نشط' : 'متوقف');
     if (bot && isPolling) {
-        bot.stopPolling();
+        try {
+            bot.stopPolling();
+            console.log('✅ تم إيقاف polling بنجاح');
+        } catch (err) {
+            console.error('❌ خطأ في إيقاف polling:', err.message);
+        }
     }
+    console.log('👋 إنهاء البرنامج...');
     process.exit(0);
 });
 
@@ -591,6 +658,9 @@ bot.on('my_chat_member', async (update) => {
         const newStatus = update.new_chat_member.status;
         const oldStatus = update.old_chat_member.status;
         
+        console.log(`👥 تحديث my_chat_member - المجموعة: ${update.chat.title || chatId}`);
+        console.log(`   الحالة القديمة: ${oldStatus} -> الحالة الجديدة: ${newStatus}`);
+        
         // التحقق من أن البوت تمت إضافته للمجموعة
         if ((chatType === 'group' || chatType === 'supergroup') && 
             (oldStatus === 'left' || oldStatus === 'kicked') && 
@@ -599,14 +669,25 @@ bot.on('my_chat_member', async (update) => {
             const title = update.chat.title;
             const adminId = update.from.id;
             
-            console.log(`🆕 تمت إضافة البوت للمجموعة: ${title} (${chatId})`);
+            console.log(`🆕 تمت إضافة البوت للمجموعة الجديدة!`);
+            console.log(`   📛 اسم المجموعة: ${title}`);
+            console.log(`   🆔 معرّف المجموعة: ${chatId}`);
+            console.log(`   👤 المستخدم الذي أضاف البوت: ${update.from.first_name} (${adminId})`);
+            console.log(`   📅 التاريخ والوقت: ${new Date().toLocaleString('ar-SA')}`);
             
             // حفظ المجموعة في قاعدة البيانات بدون تفعيل أولاً
             db.run(`INSERT OR IGNORE INTO groups (chat_id, title, admin_id, bot_enabled) VALUES (?, ?, ?, ?)`, 
                 [chatId, title, adminId, 0], function(err) {
                     if (err) {
-                        console.error('❌ خطأ في حفظ المجموعة:', err);
+                        console.error(`❌ خطأ في حفظ المجموعة في قاعدة البيانات: ${err.message}`);
+                        console.error(`   المجموعة: ${title} (${chatId})`);
                         return;
+                    }
+                    
+                    if (this.changes > 0) {
+                        console.log(`✅ تم حفظ المجموعة الجديدة في قاعدة البيانات (bot_enabled = 0)`);
+                    } else {
+                        console.log(`ℹ️ المجموعة موجودة مسبقاً في قاعدة البيانات، تحديث العنوان...`);
                     }
                     
                     // تحديث العنوان فقط في حالة المجموعة موجودة مسبقاً (عندما لا يتم إدخال صف جديد)
@@ -614,6 +695,8 @@ bot.on('my_chat_member', async (update) => {
                         db.run(`UPDATE groups SET title = ? WHERE chat_id = ?`, [title, chatId], (updateErr) => {
                             if (updateErr) {
                                 console.error('❌ خطأ في تحديث عنوان المجموعة:', updateErr);
+                            } else {
+                                console.log(`✅ تم تحديث عنوان المجموعة إلى: ${title}`);
                             }
                         });
                     }
@@ -621,16 +704,19 @@ bot.on('my_chat_member', async (update) => {
                     // إرسال رسالة ترحيب تطلب من المستخدم النقر على /start
                     (async () => {
                         try {
-                            const welcomeMsg = `🕌 *مرحباً بكم في ${title}* 🕌\n\n` +
-                                `شكراً لإضافة بوت الأذكار!\n\n` +
-                                `لتفعيل البوت والبدء في استخدامه، يرجى النقر على الأمر:\n` +
-                                `/start`;
+                            const welcomeMsg = `🤖 مرحباً! شكرًا لإضافة البوت 😊\n\n` +
+                                `للبداية، اضغط على الأمر:\n` +
+                                `/start\n\n` +
+                                `ثم تابع الإرشادات لتفعيل نشر الأذكار في المجموعة.\n\n` +
+                                `📌 ملاحظة: إذا كنت مشرفًا، ستحتاج لتفعيل البوت أولاً.`;
                             
-                            await bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
+                            await bot.sendMessage(chatId, welcomeMsg);
                             console.log(`✅ تم إرسال رسالة الترحيب للمجموعة: ${title} (${chatId})`);
+                            console.log(`📝 معلومات المجموعة - العنوان: ${title}, ID: ${chatId}, المشرف: ${adminId}`);
                             
                         } catch (error) {
-                            console.error('❌ خطأ في إرسال رسالة الترحيب:', chatId, error.message);
+                            console.error(`❌ خطأ في إرسال رسالة الترحيب للمجموعة: ${title} (${chatId})`);
+                            console.error(`📋 تفاصيل الخطأ: ${error.message}`);
                         }
                     })();
                 });
@@ -683,7 +769,8 @@ bot.onText(/\/start/, async (msg) => {
                                 console.error('❌ خطأ في تحديث حالة المجموعة:', updateErr);
                             }
                             
-                            const activationMsg = `تم تفعيل بوت الأذكار بنجاح!\n\n` +
+                            const activationMsg = `✅ تم تفعيل بوت الأذكار بنجاح!\n\n` +
+                                `🕌 البوت جاهز الآن لنشر الأذكار في المجموعة.\n\n` +
                                 `الأوامر المتاحة:\n` +
                                 `/enable - تفعيل البوت\n` +
                                 `/disable - إيقاف البوت\n` +
@@ -699,6 +786,8 @@ bot.onText(/\/start/, async (msg) => {
                             try {
                                 await bot.sendMessage(chatId, activationMsg);
                                 console.log(`✅ تم تفعيل البوت بنجاح في المجموعة: ${title} (${chatId})`);
+                                console.log(`👤 تم التفعيل بواسطة المشرف: ${msg.from.first_name} (${adminId})`);
+                                console.log(`📊 حالة البوت الآن: مفعّل ✓`);
                             } catch (sendErr) {
                                 console.error('❌ خطأ في إرسال رسالة التفعيل:', sendErr);
                             }
@@ -744,7 +833,8 @@ async function enableBot(chatId, userId, commandName = 'enable') {
         db.run(`UPDATE groups SET bot_enabled = 1 WHERE chat_id = ?`, [chatId], async (err) => {
             if (err) {
                 await bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.');
-                console.error('❌ خطأ في تفعيل البوت:', err);
+                console.error(`❌ خطأ في تفعيل البوت: ${err.message}`);
+                console.error(`   المجموعة: ${chatId}`);
                 return;
             }
 
@@ -753,6 +843,8 @@ async function enableBot(chatId, userId, commandName = 'enable') {
                 { parse_mode: 'Markdown' }
             );
             console.log(`✅ تم تفعيل البوت يدوياً في المجموعة: ${chatId} (الأمر: /${commandName})`);
+            console.log(`   المستخدم: ${userId}`);
+            console.log(`   📊 حالة البوت الآن: مفعّل ✓`);
         });
 
     } catch (error) {
@@ -784,7 +876,8 @@ bot.onText(/\/disable/, async (msg) => {
         db.run(`UPDATE groups SET bot_enabled = 0 WHERE chat_id = ?`, [chatId], async (err) => {
             if (err) {
                 await bot.sendMessage(chatId, '❌ حدث خطأ في إيقاف البوت.');
-                console.error('❌ خطأ في إيقاف البوت:', err);
+                console.error(`❌ خطأ في إيقاف البوت: ${err.message}`);
+                console.error(`   المجموعة: ${chatId}`);
                 return;
             }
 
@@ -793,6 +886,8 @@ bot.onText(/\/disable/, async (msg) => {
                 { parse_mode: 'Markdown' }
             );
             console.log(`⏸️ تم إيقاف البوت في المجموعة: ${chatId}`);
+            console.log(`   المستخدم: ${userId}`);
+            console.log(`   📊 حالة البوت الآن: متوقف ✗`);
         });
 
     } catch (error) {
