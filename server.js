@@ -506,7 +506,7 @@ async function sendScheduledAzkar(adkarId) {
 function scheduleAdkar(adkar) {
     const jobKey = `adkar_${adkar.id}`;
     
-    // إلغاء المهمة السابقة إذا كانت موجودة
+    // إلغاء المهمة السابقة إذا كانت موجودة (مهم عند التحديث)
     if (scheduledJobs.has(jobKey)) {
         scheduledJobs.get(jobKey).cancel();
         scheduledJobs.delete(jobKey);
@@ -1046,6 +1046,7 @@ app.put('/api/adkar/:id', upload.fields([
                 res.status(500).json({ error: err.message });
             } else {
                 // إعادة جدولة الذكر المحدث
+                // ملاحظة: scheduleAdkar تلغي المهمة القديمة تلقائياً قبل إنشاء مهمة جديدة
                 db.get(`SELECT a.*, c.name as category_name FROM adkar a 
                        LEFT JOIN categories c ON a.category_id = c.id 
                        WHERE a.id = ?`, [id], (err, adkar) => {
