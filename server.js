@@ -58,6 +58,12 @@ function initializeBot() {
         }
     }
     
+    // إزالة مرجع البوت القديم إذا كان موجوداً
+    if (bot) {
+        console.log('🧹 تنظيف مرجع البوت القديم...');
+        bot = null;
+    }
+    
     continueInitialization();
 }
 
@@ -97,11 +103,13 @@ function continueInitialization() {
                 }, retryDelay);
             } else {
                 console.error('❌ فشلت جميع المحاولات. يرجى التأكد من عدم وجود نسخ أخرى من البوت تعمل.');
+                initializationInProgress = false; // إعادة تعيين الحالة للسماح بإعادة المحاولة يدوياً
             }
         } else if (error.message.includes('ETELEGRAM')) {
             console.log('🔄 خطأ في الاتصال بـ Telegram، إعادة المحاولة خلال 5 ثواني...');
             isPolling = false;
             initializationInProgress = false;
+            retryCount = 0; // إعادة تعيين عداد المحاولات لأخطاء الاتصال
             
             setTimeout(() => {
                 initializeBot();
@@ -127,6 +135,7 @@ function continueInitialization() {
         console.error('❌ خطأ في بدء polling:', error.message);
         isPolling = false;
         initializationInProgress = false;
+        retryCount = 0; // إعادة تعيين عداد المحاولات لأخطاء عامة
         
         // إعادة المحاولة بعد 5 ثواني
         setTimeout(() => {
@@ -649,7 +658,7 @@ bot.on('my_chat_member', async (update) => {
         const newStatus = update.new_chat_member.status;
         const oldStatus = update.old_chat_member.status;
         
-        console.log(`📊 تحديث my_chat_member - المجموعة: ${update.chat.title || chatId}`);
+        console.log(`👥 تحديث my_chat_member - المجموعة: ${update.chat.title || chatId}`);
         console.log(`   الحالة القديمة: ${oldStatus} -> الحالة الجديدة: ${newStatus}`);
         
         // التحقق من أن البوت تمت إضافته للمجموعة
@@ -670,8 +679,8 @@ bot.on('my_chat_member', async (update) => {
             db.run(`INSERT OR IGNORE INTO groups (chat_id, title, admin_id, bot_enabled) VALUES (?, ?, ?, ?)`, 
                 [chatId, title, adminId, 0], function(err) {
                     if (err) {
-                        console.error('❌ خطأ في حفظ المجموعة في قاعدة البيانات:', err);
-                        console.error('   المجموعة: ', title, '(', chatId, ')');
+                        console.error(`❌ خطأ في حفظ المجموعة في قاعدة البيانات: ${err.message}`);
+                        console.error(`   المجموعة: ${title} (${chatId})`);
                         return;
                     }
                     
@@ -706,8 +715,8 @@ bot.on('my_chat_member', async (update) => {
                             console.log(`📝 معلومات المجموعة - العنوان: ${title}, ID: ${chatId}, المشرف: ${adminId}`);
                             
                         } catch (error) {
-                            console.error('❌ خطأ في إرسال رسالة الترحيب للمجموعة:', title, '(', chatId, ')');
-                            console.error('📋 تفاصيل الخطأ:', error.message);
+                            console.error(`❌ خطأ في إرسال رسالة الترحيب للمجموعة: ${title} (${chatId})`);
+                            console.error(`📋 تفاصيل الخطأ: ${error.message}`);
                         }
                     })();
                 });
@@ -824,8 +833,8 @@ async function enableBot(chatId, userId, commandName = 'enable') {
         db.run(`UPDATE groups SET bot_enabled = 1 WHERE chat_id = ?`, [chatId], async (err) => {
             if (err) {
                 await bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.');
-                console.error('❌ خطأ في تفعيل البوت:', err);
-                console.error('   المجموعة: ', chatId);
+                console.error(`❌ خطأ في تفعيل البوت: ${err.message}`);
+                console.error(`   المجموعة: ${chatId}`);
                 return;
             }
 
@@ -867,8 +876,8 @@ bot.onText(/\/disable/, async (msg) => {
         db.run(`UPDATE groups SET bot_enabled = 0 WHERE chat_id = ?`, [chatId], async (err) => {
             if (err) {
                 await bot.sendMessage(chatId, '❌ حدث خطأ في إيقاف البوت.');
-                console.error('❌ خطأ في إيقاف البوت:', err);
-                console.error('   المجموعة: ', chatId);
+                console.error(`❌ خطأ في إيقاف البوت: ${err.message}`);
+                console.error(`   المجموعة: ${chatId}`);
                 return;
             }
 
