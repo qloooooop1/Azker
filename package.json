@@ -1,7 +1,7 @@
 {
-  "name": "telegram-adkar-bot",
-  "version": "2.0.0",
-  "description": "بوت أذكار تلجرام مع لوحة تحكم متكاملة",
+  "name": "telegram-adkar-bot-simple",
+  "version": "1.0.0",
+  "description": "بوت أذكار تلجرام مع لوحة تحكم",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -18,5 +18,8 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.20"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
