@@ -9,6 +9,7 @@ const multer = require('multer');
 const cors = require('cors');
 const axios = require('axios');
 const { Readable } = require('stream');
+const schedule = require('node-schedule');
 
 // ========== إعدادات التطبيق ==========
 const app = express();
@@ -430,56 +431,156 @@ async function sendAdkarToGroup(chatId, adkar) {
 }
 
 // ========== جدولة النشر المتقدمة ==========
-setInterval(() => {
-    if (!isPolling) return;
+// تخزين المهام المجدولة
+const scheduledJobs = new Map();
+
+// وظيفة لإرسال الأذكار المجدولة
+async function sendScheduledAzkar(adkarId) {
+    console.log(`📅 تشغيل مهمة مجدولة للذكر رقم ${adkarId}`);
     
-    const now = moment();
-    const currentTime = now.format('HH:mm');
+    db.get(`SELECT a.*, c.name as category_name FROM adkar a 
+           LEFT JOIN categories c ON a.category_id = c.id 
+           WHERE a.id = ? AND a.is_active = 1`, 
+        [adkarId], async (err, adkar) => {
+            if (err) {
+                console.error(`❌ خطأ في جلب الذكر ${adkarId}:`, err);
+                return;
+            }
+            
+            if (!adkar) {
+                console.log(`⚠️ الذكر ${adkarId} غير موجود أو غير مفعل`);
+                return;
+            }
+            
+            // التحقق من الجدولة
+            if (!shouldSendToday(adkar)) {
+                console.log(`⏭️ تخطي الذكر ${adkarId} - غير مجدول لهذا اليوم`);
+                return;
+            }
+            
+            // التحقق من آخر إرسال (تجنب التكرار)
+            db.get(`SELECT COUNT(*) as count FROM sent_logs 
+                   WHERE adkar_id = ? AND date(sent_at) = date('now')`,
+                [adkar.id], async (err, row) => {
+                    if (err) {
+                        console.error(`❌ خطأ في التحقق من سجل الإرسال:`, err);
+                        return;
+                    }
+                    
+                    if (row && row.count > 0) {
+                        console.log(`✓ الذكر ${adkarId} تم إرساله اليوم بالفعل`);
+                        return;
+                    }
+                    
+                    // جلب المجموعات النشطة
+                    db.all("SELECT chat_id FROM groups WHERE bot_enabled = 1", async (err, groups) => {
+                        if (err) {
+                            console.error('❌ خطأ في جلب المجموعات:', err);
+                            return;
+                        }
+                        
+                        if (!groups || groups.length === 0) {
+                            console.log('⚠️ لا توجد مجموعات نشطة');
+                            return;
+                        }
+                        
+                        console.log(`📤 نشر الذكر "${adkar.title}" إلى ${groups.length} مجموعة`);
+                        
+                        // إرسال لكل مجموعة
+                        for (const group of groups) {
+                            try {
+                                await sendAdkarToGroup(group.chat_id, adkar);
+                                console.log(`✓ تم إرسال الذكر إلى المجموعة ${group.chat_id}`);
+                                // تأخير لتجنب الحظر
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+                            } catch (error) {
+                                console.error(`❌ خطأ في إرسال الذكر إلى المجموعة ${group.chat_id}:`, error.message);
+                            }
+                        }
+                    });
+                });
+        });
+}
+
+// وظيفة لجدولة ذكر واحد
+function scheduleAdkar(adkar) {
+    const jobKey = `adkar_${adkar.id}`;
     
-    // جلب الأذكار المجدولة لهذا الوقت
+    // إلغاء المهمة السابقة إذا كانت موجودة (مهم عند التحديث)
+    if (scheduledJobs.has(jobKey)) {
+        scheduledJobs.get(jobKey).cancel();
+        scheduledJobs.delete(jobKey);
+    }
+    
+    // عدم جدولة الأذكار غير المفعلة
+    if (!adkar.is_active) {
+        console.log(`⏸️ تخطي جدولة الذكر ${adkar.id} - غير مفعل`);
+        return;
+    }
+    
+    try {
+        // تحليل وقت الجدولة (HH:mm)
+        const [hour, minute] = adkar.schedule_time.split(':').map(Number);
+        
+        if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+            console.error(`❌ وقت جدولة غير صحيح للذكر ${adkar.id}: ${adkar.schedule_time}`);
+            return;
+        }
+        
+        // إنشاء قاعدة الجدولة - كل يوم في الوقت المحدد
+        const rule = new schedule.RecurrenceRule();
+        rule.hour = hour;
+        rule.minute = minute;
+        rule.tz = process.env.TIMEZONE || 'Asia/Riyadh'; // المنطقة الزمنية (قابلة للتعديل من .env)
+        
+        const job = schedule.scheduleJob(rule, () => {
+            sendScheduledAzkar(adkar.id);
+        });
+        
+        scheduledJobs.set(jobKey, job);
+        console.log(`✅ تم جدولة الذكر ${adkar.id} "${adkar.title}" في الساعة ${adkar.schedule_time}`);
+    } catch (error) {
+        console.error(`❌ خطأ في جدولة الذكر ${adkar.id}:`, error);
+    }
+}
+
+// وظيفة لتحميل وجدولة جميع الأذكار
+function loadAndScheduleAllAzkar() {
+    console.log('🔄 تحميل وجدولة جميع الأذكار...');
+    
     db.all(`SELECT a.*, c.name as category_name FROM adkar a 
            LEFT JOIN categories c ON a.category_id = c.id 
-           WHERE a.is_active = 1 AND a.schedule_time = ?`, 
-        [currentTime], (err, adkarList) => {
+           WHERE a.is_active = 1`, 
+        (err, adkarList) => {
             if (err) {
                 console.error('❌ خطأ في جلب الأذكار:', err);
                 return;
             }
             
-            if (!adkarList || adkarList.length === 0) return;
-
-            // جلب المجموعات النشطة
-            db.all("SELECT chat_id FROM groups WHERE bot_enabled = 1", async (err, groups) => {
-                if (err || !groups || groups.length === 0) return;
-
-                console.log(`🕒 نشر ${adkarList.length} ذكر في ${groups.length} مجموعة`);
-
-                for (const adkar of adkarList) {
-                    // التحقق من الجدولة
-                    if (!shouldSendToday(adkar)) {
-                        continue;
-                    }
-
-                    // التحقق من آخر إرسال (تجنب التكرار)
-                    db.get(`SELECT COUNT(*) as count FROM sent_logs 
-                           WHERE adkar_id = ? AND date(sent_at) = date('now')`,
-                        [adkar.id], async (err, row) => {
-                            if (row && row.count > 0) {
-                                // تم إرساله اليوم بالفعل
-                                return;
-                            }
-
-                            // إرسال لكل مجموعة
-                            for (const group of groups) {
-                                await sendAdkarToGroup(group.chat_id, adkar);
-                                // تأخير لتجنب الحظر
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                            }
-                        });
-                }
+            if (!adkarList || adkarList.length === 0) {
+                console.log('⚠️ لا توجد أذكار نشطة للجدولة');
+                return;
+            }
+            
+            console.log(`📋 تم العثور على ${adkarList.length} ذكر نشط`);
+            
+            // جدولة كل ذكر
+            adkarList.forEach(adkar => {
+                scheduleAdkar(adkar);
             });
+            
+            console.log(`✅ تم جدولة ${scheduledJobs.size} ذكر بنجاح`);
         });
-}, 60000); // كل دقيقة
+}
+
+// بدء الجدولة عند تشغيل الخادم
+// الانتظار للتأكد من اتصال قاعدة البيانات والبوت قبل جدولة الأذكار
+const SCHEDULER_STARTUP_DELAY = parseInt(process.env.SCHEDULER_STARTUP_DELAY || '5000', 10);
+setTimeout(() => {
+    if (isPolling) {
+        loadAndScheduleAllAzkar();
+    }
+}, SCHEDULER_STARTUP_DELAY);
 
 // ========== معالجة أوامر البوت ==========
 bot.onText(/\/start/, async (msg) => {
@@ -854,7 +955,19 @@ app.post('/api/adkar', upload.fields([
                 if (err) {
                     res.status(500).json({ error: err.message });
                 } else {
-                    res.json({ success: true, id: this.lastID });
+                    const newAdkarId = this.lastID;
+                    
+                    // جدولة الذكر الجديد
+                    db.get(`SELECT a.*, c.name as category_name FROM adkar a 
+                           LEFT JOIN categories c ON a.category_id = c.id 
+                           WHERE a.id = ?`, [newAdkarId], (err, adkar) => {
+                        if (!err && adkar) {
+                            scheduleAdkar(adkar);
+                            console.log(`🆕 تمت إضافة وجدولة ذكر جديد: ${adkar.title} (ID: ${newAdkarId})`);
+                        }
+                    });
+                    
+                    res.json({ success: true, id: newAdkarId });
                 }
             });
     } catch (error) {
@@ -932,6 +1045,17 @@ app.put('/api/adkar/:id', upload.fields([
             if (err) {
                 res.status(500).json({ error: err.message });
             } else {
+                // إعادة جدولة الذكر المحدث
+                // ملاحظة: scheduleAdkar تلغي المهمة القديمة تلقائياً قبل إنشاء مهمة جديدة
+                db.get(`SELECT a.*, c.name as category_name FROM adkar a 
+                       LEFT JOIN categories c ON a.category_id = c.id 
+                       WHERE a.id = ?`, [id], (err, adkar) => {
+                    if (!err && adkar) {
+                        scheduleAdkar(adkar);
+                        console.log(`🔄 تم تحديث وإعادة جدولة الذكر: ${adkar.title} (ID: ${id})`);
+                    }
+                });
+                
                 res.json({ success: true, changes: this.changes });
             }
         });
@@ -942,6 +1066,14 @@ app.put('/api/adkar/:id', upload.fields([
 
 app.delete('/api/adkar/:id', (req, res) => {
     const { id } = req.params;
+    
+    // إلغاء جدولة الذكر المحذوف
+    const jobKey = `adkar_${id}`;
+    if (scheduledJobs.has(jobKey)) {
+        scheduledJobs.get(jobKey).cancel();
+        scheduledJobs.delete(jobKey);
+        console.log(`🗑️ تم إلغاء جدولة الذكر المحذوف (ID: ${id})`);
+    }
     
     db.run("DELETE FROM adkar WHERE id = ?", [id], function(err) {
         if (err) {
