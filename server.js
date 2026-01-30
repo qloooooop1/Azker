@@ -272,23 +272,40 @@ function continueInitialization() {
             if (!success && !webhookSetupCompleted) {
                 webhookSetupCompleted = true;
                 console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
-                startPollingMode();
+                startPollingMode().catch(err => {
+                    console.error('❌ خطأ في بدء polling:', err.message);
+                });
             }
         }).catch(err => {
             if (!webhookSetupCompleted) {
                 webhookSetupCompleted = true;
                 console.error('❌ خطأ في setupWebhook:', err.message);
                 console.log('⚠️ التراجع إلى polling...');
-                startPollingMode();
+                startPollingMode().catch(err => {
+                    console.error('❌ خطأ في بدء polling:', err.message);
+                });
             }
         });
     } else {
         // Polling mode
-        startPollingMode();
+        startPollingMode().catch(err => {
+            console.error('❌ خطأ في بدء polling:', err.message);
+        });
     }
 }
 
-function startPollingMode() {
+async function startPollingMode() {
+    // Delete any existing webhook and drop pending updates before starting polling
+    // This is critical for Render's zero-downtime deployments to prevent 409 Conflict
+    try {
+        console.log('🔄 حذف أي webhook موجود ومسح التحديثات المعلقة...');
+        await bot.deleteWebHook({ drop_pending_updates: true });
+        console.log('✅ تم مسح webhook والتحديثات المعلقة بنجاح');
+    } catch (err) {
+        // Safe to ignore - webhook might not exist
+        console.log('ℹ️ لم يكن هناك webhook للحذف (هذا طبيعي)');
+    }
+    
     // معالجة أخطاء polling
     pollingErrorHandler = async (error) => {
         console.error('❌ خطأ في polling:', error.message);
@@ -402,6 +419,17 @@ async function gracefulShutdown(signal) {
             await bot.stopPolling();
             isPolling = false;
             console.log('✅ تم إيقاف polling بنجاح');
+            
+            // Also delete webhook in polling mode to ensure clean state
+            // This is critical for Render's zero-downtime deployments
+            try {
+                console.log('🔄 حذف أي webhook موجود ومسح التحديثات المعلقة...');
+                await bot.deleteWebHook({ drop_pending_updates: true });
+                console.log('✅ تم حذف webhook ومسح التحديثات المعلقة');
+            } catch (webhookErr) {
+                // Safe to ignore - webhook might not exist
+                console.log('ℹ️ لم يكن هناك webhook للحذف');
+            }
         } catch (err) {
             console.error('❌ خطأ في إيقاف polling:', err.message);
         }
@@ -411,9 +439,9 @@ async function gracefulShutdown(signal) {
     if (bot && isWebhookActive) {
         try {
             console.log('🛑 حذف webhook...');
-            await bot.deleteWebHook();
+            await bot.deleteWebHook({ drop_pending_updates: true });
             isWebhookActive = false;
-            console.log('✅ تم حذف webhook بنجاح');
+            console.log('✅ تم حذف webhook بنجاح (مع مسح التحديثات المعلقة)');
         } catch (err) {
             // Ignore errors if webhook doesn't exist
             if (err.message && !err.message.includes('not found')) {
@@ -477,10 +505,12 @@ process.on('uncaughtException', (err) => {
     try {
         if (bot && isPolling) {
             bot.stopPolling();
+            // Also delete webhook in case it was set, to prevent conflicts
+            bot.deleteWebHook({ drop_pending_updates: true }).catch(() => {});
         }
         if (bot && isWebhookActive) {
             // Don't await in synchronous error handler
-            bot.deleteWebHook().catch(() => {});
+            bot.deleteWebHook({ drop_pending_updates: true }).catch(() => {});
         }
         if (db) {
             db.close(() => {});
