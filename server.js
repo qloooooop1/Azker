@@ -459,6 +459,7 @@ db.serialize(() => {
         title TEXT,
         admin_id TEXT,
         bot_enabled INTEGER DEFAULT 1,
+        is_active INTEGER DEFAULT 1,
         settings TEXT DEFAULT '{}',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
@@ -504,6 +505,22 @@ db.serialize(() => {
             });
             stmt.finalize();
             console.log('✅ تم إضافة الأذكار الافتراضية');
+        }
+    });
+
+    // إضافة عمود is_active إلى جدول groups إذا لم يكن موجوداً (migration)
+    db.all(`PRAGMA table_info(groups)`, (err, columns) => {
+        if (!err && columns) {
+            const hasIsActive = columns.some(col => col.name === 'is_active');
+            if (!hasIsActive) {
+                db.run(`ALTER TABLE groups ADD COLUMN is_active INTEGER DEFAULT 1`, (alterErr) => {
+                    if (alterErr) {
+                        console.error('❌ خطأ في إضافة عمود is_active:', alterErr);
+                    } else {
+                        console.log('✅ تم إضافة عمود is_active إلى جدول groups');
+                    }
+                });
+            }
         }
     });
 });
@@ -918,50 +935,47 @@ bot.on('my_chat_member', async (update) => {
             console.log(`   👤 المستخدم الذي أضاف البوت: ${update.from.first_name} (${adminId})`);
             console.log(`   📅 التاريخ والوقت: ${new Date().toLocaleString('ar-SA')}`);
             
-            // حفظ المجموعة في قاعدة البيانات بدون تفعيل أولاً
-            db.run(`INSERT OR IGNORE INTO groups (chat_id, title, admin_id, bot_enabled) VALUES (?, ?, ?, ?)`, 
-                [chatId, title, adminId, 0], function(err) {
+            // حفظ وتفعيل المجموعة في قاعدة البيانات فوراً
+            db.run(`INSERT INTO groups (chat_id, title, admin_id, bot_enabled, is_active) VALUES (?, ?, ?, ?, ?) 
+                    ON CONFLICT(chat_id) DO UPDATE SET 
+                        title = excluded.title, 
+                        admin_id = excluded.admin_id, 
+                        bot_enabled = excluded.bot_enabled,
+                        is_active = excluded.is_active`, 
+                [chatId, title, adminId, 1, 1], function(err) {
                     if (err) {
                         console.error(`❌ خطأ في حفظ المجموعة في قاعدة البيانات: ${err.message}`);
                         console.error(`   المجموعة: ${title} (${chatId})`);
                         return;
                     }
                     
-                    if (this.changes > 0) {
-                        console.log(`✅ تم حفظ المجموعة الجديدة في قاعدة البيانات (bot_enabled = 0)`);
-                    } else {
-                        console.log(`ℹ️ المجموعة موجودة مسبقاً في قاعدة البيانات، تحديث العنوان...`);
-                    }
+                    console.log(`✅ تم حفظ وتفعيل المجموعة في قاعدة البيانات بنجاح`);
+                    console.log(`   📊 حالة البوت: مفعّل ✓`);
+                    console.log(`   📊 المجموعة نشطة: نعم ✓`);
                     
-                    // تحديث العنوان فقط في حالة المجموعة موجودة مسبقاً (عندما لا يتم إدخال صف جديد)
-                    if (this.changes === 0) {
-                        db.run(`UPDATE groups SET title = ? WHERE chat_id = ?`, [title, chatId], (updateErr) => {
-                            if (updateErr) {
-                                console.error('❌ خطأ في تحديث عنوان المجموعة:', updateErr);
-                            } else {
-                                console.log(`✅ تم تحديث عنوان المجموعة إلى: ${title}`);
-                            }
-                        });
-                    }
-                    
-                    // إرسال رسالة ترحيب تطلب من المستخدم النقر على /start
+                    // إرسال رسالة ترحيب واضحة مع تأكيد التفعيل
                     (async () => {
                         try {
                             const welcomeMsg = `🕌 *السلام عليكم ورحمة الله وبركاته* 🕌\n\n` +
-                                `✨ شكراً لإضافتي إلى المجموعة!\n\n` +
-                                `📿 أنا بوت الأذكار الإسلامية - سأقوم بنشر الأذكار اليومية والتذكيرات الإسلامية.\n\n` +
-                                `⚠️ *لتفعيل البوت في هذه المجموعة:*\n` +
-                                `يرجى من أحد المشرفين استخدام الأمر /start\n\n` +
-                                `بعد التفعيل سأبدأ بنشر:\n` +
+                                `✨ شكراً لإضافتي إلى المجموعة *${title}*!\n\n` +
+                                `✅ *تم تفعيل البوت تلقائياً*\n\n` +
+                                `📿 أنا بوت الأذكار الإسلامية - سأقوم بنشر الأذكار اليومية والتذكيرات الإسلامية حسب الجدولة المحددة.\n\n` +
+                                `*سأبدأ بنشر:*\n` +
                                 `☀️ أذكار الصباح\n` +
                                 `🌙 أذكار المساء\n` +
                                 `📿 أذكار متنوعة\n` +
                                 `📖 آيات قرآنية\n` +
-                                `💬 أحاديث نبوية شريفة`;
+                                `💬 أحاديث نبوية شريفة\n\n` +
+                                `*الأوامر المتاحة للمشرفين:*\n` +
+                                `/start - تفعيل البوت وعرض المعلومات\n` +
+                                `/status - عرض حالة البوت\n` +
+                                `/enable - تفعيل البوت (إذا تم إيقافه)\n` +
+                                `/disable - إيقاف البوت مؤقتاً\n` +
+                                `/help - عرض المساعدة\n\n` +
+                                `📌 *ملاحظة:* يمكن للمشرفين التحكم في البوت باستخدام الأوامر أعلاه.`;
                             
                             await bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
-                            console.log(`✅ تم إرسال رسالة الترحيب للمجموعة: ${title} (${chatId})`);
-                            console.log(`📝 معلومات المجموعة - العنوان: ${title}, ID: ${chatId}, المشرف: ${adminId}`);
+                            console.log(`✅ تم إرسال رسالة الترحيب والتفعيل للمجموعة: ${title} (${chatId})`);
                             
                         } catch (error) {
                             console.error(`❌ خطأ في إرسال رسالة الترحيب للمجموعة: ${title} (${chatId})`);
@@ -982,12 +996,12 @@ bot.on('my_chat_member', async (update) => {
             console.log(`   🆔 معرّف المجموعة: ${chatId}`);
             console.log(`   📅 التاريخ والوقت: ${new Date().toLocaleString('ar-SA')}`);
             
-            // تعطيل البوت في المجموعة (لكن لا نحذف المجموعة للاحتفاظ بالسجل)
-            db.run(`UPDATE groups SET bot_enabled = 0 WHERE chat_id = ?`, [chatId], (err) => {
+            // تعطيل البوت وتحديد حالة is_active = 0 في المجموعة (لكن لا نحذف المجموعة للاحتفاظ بالسجل)
+            db.run(`UPDATE groups SET bot_enabled = 0, is_active = 0 WHERE chat_id = ?`, [chatId], (err) => {
                 if (err) {
                     console.error(`❌ خطأ في تعطيل البوت للمجموعة: ${err.message}`);
                 } else {
-                    console.log(`✅ تم تعطيل البوت في المجموعة: ${title} (${chatId})`);
+                    console.log(`✅ تم تعطيل البوت وتحديث حالة is_active في المجموعة: ${title} (${chatId})`);
                     console.log(`ℹ️ المجموعة محفوظة في قاعدة البيانات للسجل التاريخي`);
                 }
             });
@@ -1024,44 +1038,45 @@ bot.onText(/\/start/, async (msg) => {
                 return;
             }
             
-            // حفظ المجموعة وتفعيل البوت
-            db.run(`INSERT OR IGNORE INTO groups (chat_id, title, admin_id, bot_enabled) VALUES (?, ?, ?, ?)`, 
-                [chatId, title, adminId, 1], function(err) {
+            // حفظ المجموعة وتفعيل البوت وتحديث is_active
+            db.run(`INSERT INTO groups (chat_id, title, admin_id, bot_enabled, is_active) VALUES (?, ?, ?, ?, ?) 
+                    ON CONFLICT(chat_id) DO UPDATE SET 
+                        title = excluded.title, 
+                        bot_enabled = 1, 
+                        is_active = 1`, 
+                [chatId, title, adminId, 1, 1], async function(err) {
                     if (err) {
                         console.error('❌ خطأ في حفظ المجموعة أثناء تفعيل البوت:', err);
                         bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.').catch(e => console.error(e));
                         return;
                     }
                     
-                    // تحديث البوت إلى مفعل إذا كانت المجموعة موجودة مسبقاً
-                    db.run(`UPDATE groups SET bot_enabled = 1, title = ? WHERE chat_id = ?`, 
-                        [title, chatId], async (updateErr) => {
-                            if (updateErr) {
-                                console.error('❌ خطأ في تحديث حالة المجموعة:', updateErr);
-                            }
-                            
-                            const activationMsg = `🕌 تم تفعيل بوت الأذكار بنجاح!\n\n` +
-                                `الأوامر المتوفرة:\n` +
-                                `/enable - تفعيل البوت\n` +
-                                `/disable - إيقاف البوت\n` +
-                                `/status - حالة البوت\n` +
-                                `/help - المساعدة\n\n` +
-                                `📊 الأقسام المتاحة:\n` +
-                                `☀️ أذكار الصباح\n` +
-                                `🌙 أذكار المساء\n` +
-                                `📿 أذكار عامة\n` +
-                                `📖 آيات قرآنية\n` +
-                                `💬 أحاديث نبوية`;
-                            
-                            try {
-                                await bot.sendMessage(chatId, activationMsg);
-                                console.log(`✅ تم تفعيل البوت بنجاح في المجموعة: ${title} (${chatId})`);
-                                console.log(`👤 تم التفعيل بواسطة المشرف: ${msg.from.first_name} (${adminId})`);
-                                console.log(`📊 حالة البوت الآن: مفعّل ✓`);
-                            } catch (sendErr) {
-                                console.error('❌ خطأ في إرسال رسالة التفعيل:', sendErr);
-                            }
-                        });
+                    console.log(`✅ تم حفظ وتفعيل المجموعة بنجاح في قاعدة البيانات`);
+                    
+                    const activationMsg = `🕌 *تم تفعيل بوت الأذكار بنجاح!*\n\n` +
+                        `✅ المجموعة: *${title}*\n` +
+                        `✅ حالة البوت: نشط ومفعّل\n\n` +
+                        `*الأوامر المتاحة للمشرفين:*\n` +
+                        `/start - تفعيل البوت وعرض المعلومات\n` +
+                        `/enable - تفعيل البوت (إذا تم إيقافه)\n` +
+                        `/disable - إيقاف البوت مؤقتاً\n` +
+                        `/status - عرض حالة البوت\n` +
+                        `/help - عرض المساعدة\n\n` +
+                        `*الأذكار التي سيتم نشرها:*\n` +
+                        `☀️ أذكار الصباح\n` +
+                        `🌙 أذكار المساء\n` +
+                        `📿 أذكار عامة\n` +
+                        `📖 آيات قرآنية\n` +
+                        `💬 أحاديث نبوية`;
+                    
+                    try {
+                        await bot.sendMessage(chatId, activationMsg, { parse_mode: 'Markdown' });
+                        console.log(`✅ تم تفعيل البوت بنجاح في المجموعة: ${title} (${chatId})`);
+                        console.log(`👤 تم التفعيل بواسطة المشرف: ${msg.from.first_name} (${adminId})`);
+                        console.log(`📊 حالة البوت الآن: مفعّل ✓`);
+                    } catch (sendErr) {
+                        console.error('❌ خطأ في إرسال رسالة التفعيل:', sendErr);
+                    }
                 });
         } else {
             // محادثة خاصة
@@ -1100,7 +1115,7 @@ async function enableBot(chatId, userId, commandName = 'enable') {
             return;
         }
 
-        db.run(`UPDATE groups SET bot_enabled = 1 WHERE chat_id = ?`, [chatId], async (err) => {
+        db.run(`UPDATE groups SET bot_enabled = 1, is_active = 1 WHERE chat_id = ?`, [chatId], async (err) => {
             if (err) {
                 await bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.');
                 console.error(`❌ خطأ في تفعيل البوت: ${err.message}`);
