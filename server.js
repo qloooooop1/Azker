@@ -1441,6 +1441,10 @@ app.post(WEBHOOK_PATH, (req, res) => {
     
     try {
         bot.processUpdate(req.body);
+        // Log successful webhook processing (only for messages to avoid spam from other update types)
+        if (req.body.message) {
+            console.log(`✅ تم معالجة webhook update من المستخدم: ${req.body.message.from?.username || req.body.message.from?.id || 'unknown'}`);
+        }
         res.sendStatus(200);
     } catch (error) {
         console.error('❌ خطأ في معالجة webhook update:', error);
