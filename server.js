@@ -265,27 +265,10 @@ function continueInitialization() {
         console.log('ℹ️ setMaxListeners غير متاح في هذا الإصدار');
     }
     
-    // Webhook mode setup
+    // Webhook mode setup - will be called after server is listening
     if (USE_WEBHOOK) {
-        let webhookSetupCompleted = false;
-        setupWebhook().then(success => {
-            if (!success && !webhookSetupCompleted) {
-                webhookSetupCompleted = true;
-                console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
-                startPollingMode().catch(err => {
-                    console.error('❌ خطأ في بدء polling:', err.message);
-                });
-            }
-        }).catch(err => {
-            if (!webhookSetupCompleted) {
-                webhookSetupCompleted = true;
-                console.error('❌ خطأ في setupWebhook:', err.message);
-                console.log('⚠️ التراجع إلى polling...');
-                startPollingMode().catch(err => {
-                    console.error('❌ خطأ في بدء polling:', err.message);
-                });
-            }
-        });
+        console.log('🌐 وضع Webhook مفعّل - سيتم إعداد webhook بعد بدء الخادم');
+        initializationInProgress = false;
     } else {
         // Polling mode
         startPollingMode().catch(err => {
@@ -3238,6 +3221,18 @@ app.get('/admin', (req, res) => {
 app.listen(PORT, async () => {
     console.log(`🚀 الخادم يعمل على http://localhost:${PORT}`);
     console.log(`👑 لوحة التحكم: http://localhost:${PORT}/admin`);
+    
+    // Setup webhook after server is listening (only in webhook mode)
+    if (USE_WEBHOOK && bot) {
+        console.log('🌐 الخادم جاهز، بدء إعداد webhook...');
+        const webhookSuccess = await setupWebhook();
+        if (!webhookSuccess) {
+            console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
+            await startPollingMode().catch(err => {
+                console.error('❌ خطأ في بدء polling:', err.message);
+            });
+        }
+    }
     
     try {
         const me = await bot.getMe();
