@@ -33,6 +33,22 @@ let isPolling = false;
 let initializationInProgress = false;
 let retryCount = 0;
 const MAX_RETRY_ATTEMPTS = 5;
+let reconnectTimeout = null;
+let pollingErrorHandler = null;
+
+// تنظيف event listeners من البوت القديم
+function cleanupOldBot() {
+    if (bot) {
+        console.log('🧹 تنظيف event listeners من البوت القديم...');
+        try {
+            // إزالة جميع event listeners
+            bot.removeAllListeners();
+            console.log('✅ تم إزالة جميع event listeners');
+        } catch (err) {
+            console.log('⚠️ خطأ في إزالة listeners:', err.message);
+        }
+    }
+}
 
 function initializeBot() {
     // منع تهيئة متعددة في نفس الوقت (singleton pattern)
@@ -43,6 +59,12 @@ function initializeBot() {
     
     initializationInProgress = true;
     console.log('🔧 بدء تهيئة البوت...');
+    
+    // إلغاء أي timeout موجود
+    if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+    }
     
     // إيقاف أي polling سابق
     if (bot && isPolling) {
@@ -58,9 +80,12 @@ function initializeBot() {
         }
     }
     
+    // تنظيف البوت القديم
+    cleanupOldBot();
+    
     // إزالة مرجع البوت القديم إذا كان موجوداً
     if (bot) {
-        console.log('🧹 تنظيف مرجع البوت القديم...');
+        console.log('🧹 إزالة مرجع البوت القديم...');
         bot = null;
     }
     
@@ -81,10 +106,14 @@ function continueInitialization() {
     
     console.log('✅ تم إنشاء instance جديد من البوت');
     
+    // تعيين الحد الأقصى للـ listeners لتجنب التحذيرات
+    bot.setMaxListeners(20);
+    
     // معالجة أخطاء polling
-    bot.on('polling_error', (error) => {
+    pollingErrorHandler = async (error) => {
         console.error('❌ خطأ في polling:', error.message);
         console.error('📋 تفاصيل الخطأ:', error.code || 'لا يوجد كود');
+        console.error(`⏰ وقت الخطأ: ${new Date().toLocaleString('ar-SA')}`);
         
         if (error.message.includes('409 Conflict')) {
             console.log('⚠️ تم اكتشاف 409 Conflict - نسخة أخرى من البوت تعمل');
@@ -97,25 +126,31 @@ function continueInitialization() {
             retryCount++;
             
             if (retryCount <= MAX_RETRY_ATTEMPTS) {
-                console.log(`🔄 محاولة ${retryCount}/${MAX_RETRY_ATTEMPTS} بعد ${retryDelay/1000} ثانية...`);
-                setTimeout(() => {
+                console.log(`🔄 محاولة إعادة الاتصال ${retryCount}/${MAX_RETRY_ATTEMPTS} بعد ${retryDelay/1000} ثانية...`);
+                reconnectTimeout = setTimeout(() => {
                     initializeBot();
                 }, retryDelay);
             } else {
                 console.error('❌ فشلت جميع المحاولات. يرجى التأكد من عدم وجود نسخ أخرى من البوت تعمل.');
                 initializationInProgress = false; // إعادة تعيين الحالة للسماح بإعادة المحاولة يدوياً
             }
-        } else if (error.message.includes('ETELEGRAM')) {
+        } else if (error.message.includes('ETELEGRAM') || error.message.includes('ECONNRESET') || 
+                   error.message.includes('ETIMEDOUT') || error.message.includes('ENOTFOUND')) {
             console.log('🔄 خطأ في الاتصال بـ Telegram، إعادة المحاولة خلال 5 ثواني...');
+            console.log(`📊 نوع الخطأ: ${error.code || 'Unknown'}`);
             isPolling = false;
             initializationInProgress = false;
             retryCount = 0; // إعادة تعيين عداد المحاولات لأخطاء الاتصال
             
-            setTimeout(() => {
+            reconnectTimeout = setTimeout(() => {
                 initializeBot();
             }, 5000);
+        } else {
+            console.log('⚠️ خطأ غير متوقع في polling، سيتم محاولة الاستمرار...');
         }
-    });
+    };
+    
+    bot.on('polling_error', pollingErrorHandler);
     
     // بدء polling
     try {
@@ -131,6 +166,10 @@ function continueInitialization() {
         retryCount = 0; // إعادة تعيين عداد المحاولات عند النجاح
         console.log('✅ بوت التلجرام يعمل بنجاح!');
         console.log('📊 حالة polling: نشط');
+        console.log(`⏰ وقت بدء التشغيل: ${new Date().toLocaleString('ar-SA')}`);
+        
+        // تسجيل معلومات الـ listeners
+        console.log(`📊 عدد event listeners المسجلة: ${bot.listenerCount('polling_error')}`);
     } catch (error) {
         console.error('❌ خطأ في بدء polling:', error.message);
         isPolling = false;
@@ -138,7 +177,7 @@ function continueInitialization() {
         retryCount = 0; // إعادة تعيين عداد المحاولات لأخطاء عامة
         
         // إعادة المحاولة بعد 5 ثواني
-        setTimeout(() => {
+        reconnectTimeout = setTimeout(() => {
             initializeBot();
         }, 5000);
     }
@@ -153,38 +192,89 @@ console.log('🌐 المنفذ:', PORT);
 console.log('='.repeat(50));
 initializeBot();
 
-// معالجة إغلاق التطبيق
-process.on('SIGINT', () => {
-    console.log('\n🛑 تم استلام إشارة SIGINT - إيقاف البوت...');
+// معالجة إغلاق التطبيق بشكل آمن
+async function gracefulShutdown(signal) {
+    console.log(`\n🛑 تم استلام إشارة ${signal} - بدء الإيقاف الآمن...`);
+    console.log(`⏰ وقت الإيقاف: ${new Date().toLocaleString('ar-SA')}`);
     console.log('📊 حالة polling قبل الإيقاف:', isPolling ? 'نشط' : 'متوقف');
+    
+    // إلغاء أي reconnect timeout
+    if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        console.log('✅ تم إلغاء محاولات إعادة الاتصال المعلقة');
+    }
+    
+    // إيقاف polling
     if (bot && isPolling) {
         try {
-            bot.stopPolling();
+            console.log('🛑 إيقاف polling...');
+            await bot.stopPolling();
+            isPolling = false;
             console.log('✅ تم إيقاف polling بنجاح');
         } catch (err) {
             console.error('❌ خطأ في إيقاف polling:', err.message);
+        }
+    }
+    
+    // تنظيف event listeners
+    cleanupOldBot();
+    
+    // إلغاء جميع الجداول المجدولة
+    if (scheduledJobs && scheduledJobs.size > 0) {
+        console.log(`📅 إلغاء ${scheduledJobs.size} مهمة مجدولة...`);
+        scheduledJobs.forEach((job, key) => {
+            try {
+                job.cancel();
+                console.log(`✅ تم إلغاء المهمة: ${key}`);
+            } catch (err) {
+                console.error(`❌ خطأ في إلغاء المهمة ${key}:`, err.message);
+            }
+        });
+        scheduledJobs.clear();
+        console.log('✅ تم إلغاء جميع المهام المجدولة');
+    }
+    
+    // إغلاق قاعدة البيانات
+    if (db) {
+        console.log('🗄️ إغلاق قاعدة البيانات...');
+        db.close((err) => {
+            if (err) {
+                console.error('❌ خطأ في إغلاق قاعدة البيانات:', err.message);
+                process.exit(1);
+            } else {
+                console.log('✅ تم إغلاق قاعدة البيانات بنجاح');
+                console.log('👋 إنهاء البرنامج...');
+                process.exit(0);
+            }
+        });
+    } else {
+        console.log('👋 إنهاء البرنامج...');
+        process.exit(0);
+    }
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// معالجة الأخطاء غير المتوقعة
+process.on('uncaughtException', (err) => {
+    console.error('❌ خطأ غير متوقع (uncaughtException):', err);
+    console.error('📋 Stack trace:', err.stack);
+    gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Promise rejection غير معالجة:', reason);
+    console.error('📋 Promise:', promise);
+    // لا نقوم بإيقاف البرنامج في حالة unhandledRejection
+    // لكن نسجل الخطأ للمراقبة
+});
         }
     }
     console.log('👋 إنهاء البرنامج...');
     process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-    console.log('\n🛑 تم استلام إشارة SIGTERM - إيقاف البوت...');
-    console.log('📊 حالة polling قبل الإيقاف:', isPolling ? 'نشط' : 'متوقف');
-    if (bot && isPolling) {
-        try {
-            bot.stopPolling();
-            console.log('✅ تم إيقاف polling بنجاح');
-        } catch (err) {
-            console.error('❌ خطأ في إيقاف polling:', err.message);
-        }
-    }
-    console.log('👋 إنهاء البرنامج...');
-    process.exit(0);
-});
-
-// ========== إعداد رفع الملفات ==========
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
@@ -368,6 +458,63 @@ db.serialize(() => {
     });
 });
 
+// ========== فحص وصيانة قاعدة البيانات ==========
+async function verifyDatabaseIntegrity() {
+    return new Promise((resolve, reject) => {
+        console.log('🔍 بدء فحص سلامة قاعدة البيانات...');
+        
+        // التحقق من وجود المجموعات
+        db.get("SELECT COUNT(*) as count FROM groups", (err, row) => {
+            if (err) {
+                console.error('❌ خطأ في فحص جدول المجموعات:', err);
+                reject(err);
+                return;
+            }
+            
+            const groupCount = row ? row.count : 0;
+            console.log(`📊 عدد المجموعات في قاعدة البيانات: ${groupCount}`);
+            
+            // عرض المجموعات النشطة
+            db.all("SELECT chat_id, title, bot_enabled, created_at FROM groups WHERE bot_enabled = 1", 
+                (err, groups) => {
+                    if (err) {
+                        console.error('❌ خطأ في جلب المجموعات النشطة:', err);
+                    } else if (groups && groups.length > 0) {
+                        console.log(`✅ المجموعات النشطة (${groups.length}):`);
+                        groups.forEach(group => {
+                            console.log(`   - ${group.title || 'بدون اسم'} (${group.chat_id})`);
+                            console.log(`     تاريخ الإضافة: ${group.created_at}`);
+                        });
+                    } else {
+                        console.log('ℹ️ لا توجد مجموعات نشطة حالياً');
+                    }
+                    
+                    // التحقق من الأذكار
+                    db.get("SELECT COUNT(*) as count FROM adkar WHERE is_active = 1", (err, adkarRow) => {
+                        if (err) {
+                            console.error('❌ خطأ في فحص جدول الأذكار:', err);
+                        } else {
+                            const adkarCount = adkarRow ? adkarRow.count : 0;
+                            console.log(`📖 عدد الأذكار النشطة: ${adkarCount}`);
+                        }
+                        
+                        console.log('✅ اكتمل فحص قاعدة البيانات');
+                        resolve();
+                    });
+                });
+        });
+    });
+}
+
+// تنفيذ فحص قاعدة البيانات بعد الاتصال
+setTimeout(async () => {
+    try {
+        await verifyDatabaseIntegrity();
+    } catch (err) {
+        console.error('❌ فشل فحص قاعدة البيانات:', err);
+    }
+}, 2000);
+
 // ========== وظائف مساعدة ==========
 function parseJSONArray(str, defaultValue = []) {
     try {
@@ -412,88 +559,89 @@ function shouldSendToday(adkar) {
 
 async function sendAdkarToGroup(chatId, adkar) {
     try {
-        // التحقق من تفعيل البوت في المجموعة
-        db.get("SELECT bot_enabled FROM groups WHERE chat_id = ?", [chatId], async (err, group) => {
-            if (err || !group || group.bot_enabled !== 1) {
-                console.log(`⏸️ البوت معطل في المجموعة: ${chatId}`);
-                return;
-            }
-
-            try {
-                let message = `📌 *${adkar.category_name || 'ذكر'}*\n`;
-                message += `📖 ${adkar.title}\n\n`;
-                message += `${adkar.content}\n\n`;
-                message += `🕒 ${adkar.schedule_time} | 📅 ${moment().format('YYYY/MM/DD')}`;
-
-                // إرسال المحتوى حسب النوع
-                if (adkar.content_type === 'text') {
-                    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                    
-                } else if (adkar.content_type === 'audio') {
-                    if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
-                        await bot.sendAudio(chatId, path.join(__dirname, adkar.file_path), {
-                            caption: message,
-                            parse_mode: 'Markdown'
-                        });
-                    } else if (adkar.file_url) {
-                        await bot.sendAudio(chatId, adkar.file_url, {
-                            caption: message,
-                            parse_mode: 'Markdown'
-                        });
-                    } else {
-                        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                    }
-                    
-                } else if (adkar.content_type === 'image') {
-                    if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
-                        await bot.sendPhoto(chatId, path.join(__dirname, adkar.file_path), {
-                            caption: message,
-                            parse_mode: 'Markdown'
-                        });
-                    } else if (adkar.file_url) {
-                        await bot.sendPhoto(chatId, adkar.file_url, {
-                            caption: message,
-                            parse_mode: 'Markdown'
-                        });
-                    } else {
-                        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                    }
-                    
-                } else if (adkar.content_type === 'pdf') {
-                    if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
-                        await bot.sendDocument(chatId, path.join(__dirname, adkar.file_path), {
-                            caption: message,
-                            parse_mode: 'Markdown'
-                        });
-                    } else if (adkar.file_url) {
-                        await bot.sendDocument(chatId, adkar.file_url, {
-                            caption: message,
-                            parse_mode: 'Markdown'
-                        });
-                    } else {
-                        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                    }
-                }
-
-                // تحديث وقت آخر إرسال
-                db.run("UPDATE adkar SET last_sent = datetime('now') WHERE id = ?", [adkar.id]);
-                
-                // تسجيل النجاح
-                db.run("INSERT INTO sent_logs (adkar_id, chat_id, status) VALUES (?, ?, ?)", 
-                    [adkar.id, chatId, 'success']);
-                
-                console.log(`✅ تم نشر "${adkar.title}" في ${chatId}`);
-
-            } catch (error) {
-                console.error(`❌ خطأ في الإرسال لـ ${chatId}:`, error.message);
-                
-                // تسجيل الفشل
-                db.run("INSERT INTO sent_logs (adkar_id, chat_id, status, error) VALUES (?, ?, ?, ?)", 
-                    [adkar.id, chatId, 'failed', error.message]);
-            }
+        // التحقق من تفعيل البوت في المجموعة باستخدام Promise
+        const group = await new Promise((resolve, reject) => {
+            db.get("SELECT bot_enabled FROM groups WHERE chat_id = ?", [chatId], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
         });
+        
+        if (!group || group.bot_enabled !== 1) {
+            console.log(`⏸️ البوت معطل في المجموعة: ${chatId}`);
+            return;
+        }
+
+        let message = `📌 *${adkar.category_name || 'ذكر'}*\n`;
+        message += `📖 ${adkar.title}\n\n`;
+        message += `${adkar.content}\n\n`;
+        message += `🕒 ${adkar.schedule_time} | 📅 ${moment().format('YYYY/MM/DD')}`;
+
+        // إرسال المحتوى حسب النوع
+        if (adkar.content_type === 'text') {
+            await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            
+        } else if (adkar.content_type === 'audio') {
+            if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
+                await bot.sendAudio(chatId, path.join(__dirname, adkar.file_path), {
+                    caption: message,
+                    parse_mode: 'Markdown'
+                });
+            } else if (adkar.file_url) {
+                await bot.sendAudio(chatId, adkar.file_url, {
+                    caption: message,
+                    parse_mode: 'Markdown'
+                });
+            } else {
+                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            }
+            
+        } else if (adkar.content_type === 'image') {
+            if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
+                await bot.sendPhoto(chatId, path.join(__dirname, adkar.file_path), {
+                    caption: message,
+                    parse_mode: 'Markdown'
+                });
+            } else if (adkar.file_url) {
+                await bot.sendPhoto(chatId, adkar.file_url, {
+                    caption: message,
+                    parse_mode: 'Markdown'
+                });
+            } else {
+                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            }
+            
+        } else if (adkar.content_type === 'pdf') {
+            if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
+                await bot.sendDocument(chatId, path.join(__dirname, adkar.file_path), {
+                    caption: message,
+                    parse_mode: 'Markdown'
+                });
+            } else if (adkar.file_url) {
+                await bot.sendDocument(chatId, adkar.file_url, {
+                    caption: message,
+                    parse_mode: 'Markdown'
+                });
+            } else {
+                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            }
+        }
+
+        // تحديث وقت آخر إرسال
+        db.run("UPDATE adkar SET last_sent = datetime('now') WHERE id = ?", [adkar.id]);
+        
+        // تسجيل النجاح
+        db.run("INSERT INTO sent_logs (adkar_id, chat_id, status) VALUES (?, ?, ?)", 
+            [adkar.id, chatId, 'success']);
+        
+        console.log(`✅ تم نشر "${adkar.title}" في ${chatId}`);
+
     } catch (error) {
-        console.error('❌ خطأ في إرسال الأذكار:', error);
+        console.error(`❌ خطأ في الإرسال لـ ${chatId}:`, error.message);
+        
+        // تسجيل الفشل
+        db.run("INSERT INTO sent_logs (adkar_id, chat_id, status, error) VALUES (?, ?, ?, ?)", 
+            [adkar.id, chatId, 'failed', error.message]);
     }
 }
 
@@ -504,69 +652,78 @@ const scheduledJobs = new Map();
 // وظيفة لإرسال الأذكار المجدولة
 async function sendScheduledAzkar(adkarId) {
     console.log(`📅 تشغيل مهمة مجدولة للذكر رقم ${adkarId}`);
+    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
     
-    db.get(`SELECT a.*, c.name as category_name FROM adkar a 
-           LEFT JOIN categories c ON a.category_id = c.id 
-           WHERE a.id = ? AND a.is_active = 1`, 
-        [adkarId], async (err, adkar) => {
-            if (err) {
-                console.error(`❌ خطأ في جلب الذكر ${adkarId}:`, err);
-                return;
-            }
-            
-            if (!adkar) {
-                console.log(`⚠️ الذكر ${adkarId} غير موجود أو غير مفعل`);
-                return;
-            }
-            
-            // التحقق من الجدولة
-            if (!shouldSendToday(adkar)) {
-                console.log(`⏭️ تخطي الذكر ${adkarId} - غير مجدول لهذا اليوم`);
-                return;
-            }
-            
-            // التحقق من آخر إرسال (تجنب التكرار)
-            db.get(`SELECT COUNT(*) as count FROM sent_logs 
-                   WHERE adkar_id = ? AND date(sent_at) = date('now')`,
-                [adkar.id], async (err, row) => {
-                    if (err) {
-                        console.error(`❌ خطأ في التحقق من سجل الإرسال:`, err);
-                        return;
-                    }
-                    
-                    if (row && row.count > 0) {
-                        console.log(`✓ الذكر ${adkarId} تم إرساله اليوم بالفعل`);
-                        return;
-                    }
-                    
-                    // جلب المجموعات النشطة
-                    db.all("SELECT chat_id FROM groups WHERE bot_enabled = 1", async (err, groups) => {
-                        if (err) {
-                            console.error('❌ خطأ في جلب المجموعات:', err);
-                            return;
-                        }
-                        
-                        if (!groups || groups.length === 0) {
-                            console.log('⚠️ لا توجد مجموعات نشطة');
-                            return;
-                        }
-                        
-                        console.log(`📤 نشر الذكر "${adkar.title}" إلى ${groups.length} مجموعة`);
-                        
-                        // إرسال لكل مجموعة
-                        for (const group of groups) {
-                            try {
-                                await sendAdkarToGroup(group.chat_id, adkar);
-                                console.log(`✓ تم إرسال الذكر إلى المجموعة ${group.chat_id}`);
-                                // تأخير لتجنب الحظر
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                            } catch (error) {
-                                console.error(`❌ خطأ في إرسال الذكر إلى المجموعة ${group.chat_id}:`, error.message);
-                            }
-                        }
-                    });
+    try {
+        // جلب الذكر من قاعدة البيانات
+        const adkar = await new Promise((resolve, reject) => {
+            db.get(`SELECT a.*, c.name as category_name FROM adkar a 
+                   LEFT JOIN categories c ON a.category_id = c.id 
+                   WHERE a.id = ? AND a.is_active = 1`, 
+                [adkarId], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
                 });
         });
+        
+        if (!adkar) {
+            console.log(`⚠️ الذكر ${adkarId} غير موجود أو غير مفعل`);
+            return;
+        }
+        
+        // التحقق من الجدولة
+        if (!shouldSendToday(adkar)) {
+            console.log(`⏭️ تخطي الذكر ${adkarId} - غير مجدول لهذا اليوم`);
+            return;
+        }
+        
+        // التحقق من آخر إرسال (تجنب التكرار)
+        const sentToday = await new Promise((resolve, reject) => {
+            db.get(`SELECT COUNT(*) as count FROM sent_logs 
+                   WHERE adkar_id = ? AND date(sent_at) = date('now')`,
+                [adkar.id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row ? row.count : 0);
+                });
+        });
+        
+        if (sentToday > 0) {
+            console.log(`✓ الذكر ${adkarId} تم إرساله اليوم بالفعل`);
+            return;
+        }
+        
+        // جلب المجموعات النشطة
+        const groups = await new Promise((resolve, reject) => {
+            db.all("SELECT chat_id, title FROM groups WHERE bot_enabled = 1", (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows || []);
+            });
+        });
+        
+        if (groups.length === 0) {
+            console.log('⚠️ لا توجد مجموعات نشطة');
+            return;
+        }
+        
+        console.log(`📤 نشر الذكر "${adkar.title}" إلى ${groups.length} مجموعة`);
+        
+        // إرسال لكل مجموعة
+        for (const group of groups) {
+            try {
+                await sendAdkarToGroup(group.chat_id, adkar);
+                console.log(`✓ تم إرسال الذكر إلى المجموعة ${group.title || group.chat_id}`);
+                // تأخير لتجنب الحظر
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            } catch (error) {
+                console.error(`❌ خطأ في إرسال الذكر إلى المجموعة ${group.chat_id}:`, error.message);
+            }
+        }
+        
+        console.log(`✅ اكتملت عملية نشر الذكر ${adkarId}`);
+        
+    } catch (error) {
+        console.error(`❌ خطأ في sendScheduledAzkar للذكر ${adkarId}:`, error);
+    }
 }
 
 // وظيفة لجدولة ذكر واحد
