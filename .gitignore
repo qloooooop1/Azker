@@ -10,5 +10,8 @@ yarn-error.log*
 *.swp
 *.swo
 *~
+# Database files - stored in persistent volume in production
 *.db
+# Local data directory - stored in /data volume on Render
+data/
 uploads/
