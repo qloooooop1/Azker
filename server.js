@@ -542,7 +542,7 @@ async function verifyDatabaseIntegrity() {
             console.log(`📊 عدد المجموعات في قاعدة البيانات: ${groupCount}`);
             
             // عرض المجموعات النشطة
-            db.all("SELECT chat_id, title, bot_enabled, created_at FROM groups WHERE bot_enabled = 1", 
+            db.all("SELECT chat_id, title, bot_enabled, created_at FROM groups WHERE bot_enabled = 1 AND is_active = 1", 
                 (err, groups) => {
                     if (err) {
                         console.error('❌ خطأ في جلب المجموعات النشطة:', err);
@@ -797,7 +797,7 @@ async function sendScheduledAzkar(adkarId) {
         
         // جلب المجموعات النشطة
         const groups = await new Promise((resolve, reject) => {
-            db.all("SELECT chat_id, title FROM groups WHERE bot_enabled = 1", (err, rows) => {
+            db.all("SELECT chat_id, title FROM groups WHERE bot_enabled = 1 AND is_active = 1", (err, rows) => {
                 if (err) reject(err);
                 else resolve(rows || []);
             });
@@ -909,6 +909,14 @@ setTimeout(() => {
     }
 }, SCHEDULER_STARTUP_DELAY);
 
+// ========== Helper Functions ==========
+// دالة لتحويل النص إلى Markdown آمن (تجنب الأحرف الخاصة)
+function escapeMarkdown(text) {
+    if (!text) return '';
+    // Escape special Markdown characters: * _ ` [ ]
+    return text.replace(/([*_`\[\]\\])/g, '\\$1');
+}
+
 // ========== معالجة أوامر البوت ==========
 // معالجة إضافة البوت للمجموعة (auto-activation)
 bot.on('my_chat_member', async (update) => {
@@ -939,7 +947,6 @@ bot.on('my_chat_member', async (update) => {
             db.run(`INSERT INTO groups (chat_id, title, admin_id, bot_enabled, is_active) VALUES (?, ?, ?, ?, ?) 
                     ON CONFLICT(chat_id) DO UPDATE SET 
                         title = excluded.title, 
-                        admin_id = excluded.admin_id, 
                         bot_enabled = excluded.bot_enabled,
                         is_active = excluded.is_active`, 
                 [chatId, title, adminId, 1, 1], function(err) {
@@ -956,8 +963,9 @@ bot.on('my_chat_member', async (update) => {
                     // إرسال رسالة ترحيب واضحة مع تأكيد التفعيل
                     (async () => {
                         try {
+                            const escapedTitle = escapeMarkdown(title);
                             const welcomeMsg = `🕌 *السلام عليكم ورحمة الله وبركاته* 🕌\n\n` +
-                                `✨ شكراً لإضافتي إلى المجموعة *${title}*!\n\n` +
+                                `✨ شكراً لإضافتي إلى المجموعة *${escapedTitle}*!\n\n` +
                                 `✅ *تم تفعيل البوت تلقائياً*\n\n` +
                                 `📿 أنا بوت الأذكار الإسلامية - سأقوم بنشر الأذكار اليومية والتذكيرات الإسلامية حسب الجدولة المحددة.\n\n` +
                                 `*سأبدأ بنشر:*\n` +
@@ -1053,8 +1061,9 @@ bot.onText(/\/start/, async (msg) => {
                     
                     console.log(`✅ تم حفظ وتفعيل المجموعة بنجاح في قاعدة البيانات`);
                     
+                    const escapedTitle = escapeMarkdown(title);
                     const activationMsg = `🕌 *تم تفعيل بوت الأذكار بنجاح!*\n\n` +
-                        `✅ المجموعة: *${title}*\n` +
+                        `✅ المجموعة: *${escapedTitle}*\n` +
                         `✅ حالة البوت: نشط ومفعّل\n\n` +
                         `*الأوامر المتاحة للمشرفين:*\n` +
                         `/start - تفعيل البوت وعرض المعلومات\n` +
@@ -1228,7 +1237,7 @@ app.get('/api/stats', (req, res) => {
     const queries = [
         { key: 'categories', query: "SELECT COUNT(*) as count FROM categories WHERE is_active = 1" },
         { key: 'adkar', query: "SELECT COUNT(*) as count FROM adkar WHERE is_active = 1" },
-        { key: 'groups', query: "SELECT COUNT(*) as count FROM groups WHERE bot_enabled = 1" },
+        { key: 'groups', query: "SELECT COUNT(*) as count FROM groups WHERE bot_enabled = 1 AND is_active = 1" },
         { key: 'today', query: "SELECT COUNT(*) as count FROM sent_logs WHERE date(sent_at) = date('now') AND status = 'success'" }
     ];
     
