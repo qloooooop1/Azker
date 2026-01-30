@@ -20,7 +20,7 @@
 - لا يستخدم getUpdates polling
 - مثالي لمنصات الاستضافة مثل Render.com
 - أكثر كفاءة وموثوقية من Polling
-- راجع [WEBHOOK.md](WEBHOOK.md) للتفاصيل الكاملة
+- راجع [WEBHOOK.md](WEBHOOK.md) للتفاصيل الكاملة.
 
 #### قفل العملية (Process Locking) - حماية إضافية
 - يمنع تشغيل نسخ متعددة من البوت في نفس الوقت
@@ -42,14 +42,14 @@
 
 #### للإنتاج (Production - Render.com)
 
-1. انسخ `env.example` إلى `.env`
-2. قم بتعيين المتغيرات المطلوبة:
+1. انسخ `env.example` إلى `.env` أو استخدم لوحة تحكم Render
+2. قم بتعيين المتغيرات المطلوبة في ملف `.env` أو في Render dashboard:
    ```env
    TELEGRAM_BOT_TOKEN=your_bot_token_here
    USE_WEBHOOK=true
    WEBHOOK_URL=https://your-service-name.onrender.com
    ```
-3. انشر على Render.com - البوت سيعمل تلقائياً بوضع Webhook
+3. انشر على Render.com - البوت سيعمل تلقائياً بوضع Webhook.
 
 #### للتطوير المحلي (Local Development)
 

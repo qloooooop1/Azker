@@ -41,7 +41,7 @@ WEBHOOK_SECRET=your-secret-token  # Optional, auto-generated if not set
 
 ### 2. Process Locking (PID-based) - Additional Protection
 
-A robust process locking mechanism for additional safety:
+A robust process locking mechanism that works in both webhook and polling modes:
 
 **Features:**
 - ✅ Atomic file creation using `wx` flag to prevent race conditions
@@ -49,6 +49,7 @@ A robust process locking mechanism for additional safety:
 - ✅ Automatic detection and cleanup of stale locks from crashed processes
 - ✅ Graceful cleanup on shutdown (SIGINT, SIGTERM)
 - ✅ Error handling in uncaughtException
+- ✅ Works with both webhook and polling modes
 
 **How it works:**
 1. On startup, bot attempts to create a PID file atomically
@@ -59,9 +60,9 @@ A robust process locking mechanism for additional safety:
 
 **Location:** PID file is stored at `{DATA_DIR}/bot.pid`
 
-### 3. Polling Mode Fallback (For Local Development)
+### 3. Polling Mode (Available for Local Development)
 
-Available for local development when webhooks aren't needed:
+Available as a fallback for local development when webhooks aren't practical:
 
 **Configuration:**
 ```env
@@ -207,7 +208,8 @@ Response:
 ### For Local Development
 Set `USE_WEBHOOK=false` in your `.env` file to use polling mode locally.
 
-### To Enable Webhook Mode (If Not Using Default)
+### Advanced: Manual Webhook Configuration
+For advanced use cases where you need to manually configure webhook settings:
 1. Set `USE_WEBHOOK=true` in `.env`
 2. Set `WEBHOOK_URL` to your public domain
 3. Optionally set `WEBHOOK_SECRET` for extra security

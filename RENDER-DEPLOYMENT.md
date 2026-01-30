@@ -52,7 +52,7 @@ This is the **default and recommended approach** for all Render deployments.
 **1. Configure your `.env` or Render environment variables:**
 
 ```bash
-# Webhook mode is now the default
+# Webhook mode (this is the default)
 USE_WEBHOOK=true
 
 # Use your Render service URL
@@ -91,9 +91,11 @@ services:
 - ✅ Lower latency - instant message delivery
 - ✅ **This is now the default mode**
 
-### Alternative: Polling Mode (For Local Development Only)
+### Alternative: Polling Mode (Not Recommended for Production)
 
-If you must use polling mode (e.g., for local development):
+**Important**: Polling mode should only be used for local development. For production deployments on Render, always use webhook mode.
+
+If you need polling mode for local development:
 
 **1. Override webhook mode in `.env`:**
 
