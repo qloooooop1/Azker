@@ -9,11 +9,22 @@ This bot supports two modes of operation:
 ## Why Use Webhook Mode?
 
 Webhook mode is recommended because it:
-- ✅ Prevents **409 Conflict errors** from multiple bot instances
+- ✅ Prevents **409 Conflict errors** from multiple bot instances and zero-downtime deployments
+- ✅ **Critical for Render.com** - Resolves conflicts during rolling deployments
 - ✅ More efficient - no continuous polling
 - ✅ Lower latency - instant message delivery
 - ✅ Better for production deployments
 - ✅ More reliable and scalable
+
+### 409 Conflict Issues on Render.com
+
+Render.com uses **zero-downtime deployments**, which means:
+1. A new instance starts while the old one is still running
+2. Both instances try to use `getUpdates` (polling mode)
+3. Telegram only allows one active `getUpdates` connection
+4. Result: `ETELEGRAM 409 Conflict: terminated by other getUpdates request`
+
+**Solution:** Webhook mode eliminates polling, preventing conflicts during deployments.
 
 ## Switching to Webhook Mode
 
@@ -80,9 +91,22 @@ POST https://yourdomain.com/webhook
 ```
 
 The bot automatically:
-- Sets up the webhook URL with Telegram
+- Waits for the Express server to start listening
+- Sets up the webhook URL with Telegram (only after server is ready)
+- Validates incoming requests using the secret token (if configured)
 - Processes incoming updates
 - Removes the webhook on graceful shutdown
+
+### Technical Implementation
+
+The bot uses proper initialization sequencing to prevent issues:
+
+1. **Bot Initialization:** Creates the Telegram bot instance with `polling: false`
+2. **Server Start:** Express server starts listening on the configured PORT
+3. **Webhook Setup:** After server is listening, calls `bot.setWebHook()` 
+4. **Ready:** Bot is now ready to receive updates from Telegram
+
+This sequencing ensures that Telegram's webhook verification succeeds, as the server is already listening when the webhook is registered.
 
 ## Testing Webhook Setup
 
@@ -157,10 +181,18 @@ If webhook setup fails, the bot will automatically fall back to polling mode:
 
 ### Render.com
 
+**Important:** Set your Render service type to **Web Service** (not Background Worker), as webhooks require an open port.
+
 ```env
 USE_WEBHOOK=true
 WEBHOOK_URL=https://your-app-name.onrender.com
+# PORT is automatically set by Render - don't override it
 ```
+
+The bot will:
+1. Start the Express server on Render's assigned PORT
+2. Set up the webhook with Telegram after the server is listening
+3. Automatically handle zero-downtime deployments without 409 conflicts
 
 ### Heroku
 
