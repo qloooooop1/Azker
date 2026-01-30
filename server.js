@@ -57,9 +57,12 @@ const PID_FILE = path.join(DATA_DIR, 'bot.pid');
 const USE_WEBHOOK = process.env.USE_WEBHOOK === 'true';
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
-// Optional: Secret token for webhook validation (randomly generated if not provided)
-const SECRET_TOKEN = process.env.WEBHOOK_SECRET || Math.random().toString(36).substring(2, 15);
-const WEBHOOK_SECRET = SECRET_TOKEN; // Alias for backward compatibility
+// Optional: Secret token for webhook validation
+// Use environment variable or generate a consistent token based on bot token hash
+const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 
+    (process.env.TELEGRAM_BOT_TOKEN ? 
+        require('crypto').createHash('sha256').update(process.env.TELEGRAM_BOT_TOKEN).digest('hex').substring(0, 32) : 
+        'default-secret-token');
 const HEALTH_URL = WEBHOOK_URL ? `${WEBHOOK_URL}/health` : '';
 
 let bot;
@@ -205,8 +208,9 @@ async function checkDomainReady() {
     try {
         console.log(`🔍 التحقق من جاهزية domain: ${HEALTH_URL}`);
         const response = await axios.get(HEALTH_URL, { timeout: 10000 });
-        if (response.status === 200) {
-            console.log('✅ Domain جاهز ومتاح');
+        // Accept any 2xx status code as successful
+        if (response.status >= 200 && response.status < 300) {
+            console.log(`✅ Domain جاهز ومتاح (status: ${response.status})`);
             return true;
         }
         console.log(`⚠️ Domain استجاب بحالة: ${response.status}`);
@@ -1566,9 +1570,12 @@ bot.onText(/\/help/, (msg) => {
 app.post(WEBHOOK_PATH, (req, res) => {
     const startTime = Date.now();
     
-    // Log incoming request
+    // Log incoming request (without exposing sensitive data)
+    const updateType = req.body.message ? 'message' : 
+                      req.body.callback_query ? 'callback_query' : 
+                      req.body.edited_message ? 'edited_message' : 'other';
     console.log(`📥 تم استلام طلب webhook في: ${new Date().toISOString()}`);
-    console.log(`📝 Body:`, JSON.stringify(req.body).substring(0, 200));
+    console.log(`📝 Update type: ${updateType}`);
     
     if (!USE_WEBHOOK || !bot) {
         console.log('⚠️ تم استلام طلب webhook لكن الوضع غير مفعّل');
@@ -1579,27 +1586,26 @@ app.post(WEBHOOK_PATH, (req, res) => {
     const secretToken = req.headers['x-telegram-bot-api-secret-token'];
     if (SECRET_TOKEN && secretToken !== SECRET_TOKEN) {
         console.error('❌ Secret token mismatch. Invalid request!');
-        console.error(`📝 متوقع: ${SECRET_TOKEN.substring(0, 5)}..., مستلم: ${secretToken ? secretToken.substring(0, 5) + '...' : 'undefined'}`);
         return res.sendStatus(403);
     }
     
     try {
-        // Process the update immediately and send 200 response
-        res.sendStatus(200);
-        const responseTime = Date.now() - startTime;
-        console.log(`✅ تم الرد على webhook في ${responseTime}ms`);
-        
-        // Process update asynchronously
+        // Process update first, then send response
         bot.processUpdate(req.body);
         
-        // Log successful webhook processing (only for messages to avoid spam from other update types)
+        const responseTime = Date.now() - startTime;
+        res.sendStatus(200);
+        console.log(`✅ تم معالجة ورد على webhook في ${responseTime}ms`);
+        
+        // Log successful webhook processing (only for messages to avoid spam)
         if (req.body.message) {
-            console.log(`✅ تم معالجة webhook update من المستخدم: ${req.body.message.from?.username || req.body.message.from?.id || 'unknown'}`);
+            const userId = req.body.message.from?.id || 'unknown';
+            console.log(`✅ تم معالجة رسالة من المستخدم: ${userId}`);
         }
     } catch (error) {
-        console.error('❌ خطأ في معالجة webhook update:', error);
-        console.error('📝 تفاصيل الخطأ:', error.stack);
-        // Already sent 200, so just log the error
+        console.error('❌ خطأ في معالجة webhook update:', error.message);
+        // Send 500 to allow Telegram to retry
+        res.sendStatus(500);
     }
 });
 
@@ -3383,12 +3389,15 @@ app.listen(PORT, async () => {
                 });
             } else {
                 // Start keep-alive mechanism to prevent Render spin-down
-                if (WEBHOOK_URL && !keepAliveInterval) {
+                // NOTE: This is a workaround for Render's free tier. For production,
+                // consider using external monitoring services like UptimeRobot or Cronitor
+                if (WEBHOOK_URL && keepAliveInterval === null) {
                     console.log('🔄 تفعيل keep-alive mechanism لمنع spin-down على Render');
+                    console.log('ℹ️ ملاحظة: للإنتاج، يُنصح باستخدام خدمات مراقبة خارجية');
                     keepAliveInterval = setInterval(() => {
-                        axios.get(HEALTH_URL)
-                            .then(() => console.log('✅ Keep-alive triggered to prevent spin-down'))
-                            .catch(err => console.error('⚠️ Keep-alive request failed:', err.message));
+                        axios.get(HEALTH_URL, { timeout: 5000 })
+                            .then(() => console.log('✅ Keep-alive ping successful'))
+                            .catch(err => console.error('⚠️ Keep-alive ping failed:', err.message));
                     }, 300000); // كل 5 دقائق
                 }
             }
