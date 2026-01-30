@@ -21,9 +21,16 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static('uploads'));
 
+// التوافق مع env. file: BOT_TOKEN -> TELEGRAM_BOT_TOKEN
+if (!process.env.TELEGRAM_BOT_TOKEN && process.env.BOT_TOKEN) {
+    process.env.TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN;
+    console.log('ℹ️ استخدام BOT_TOKEN من ملف env.');
+}
+
 // التحقق من التوكن
 if (!process.env.TELEGRAM_BOT_TOKEN) {
     console.error('❌ خطأ: TELEGRAM_BOT_TOKEN غير محدد في ملف .env');
+    console.error('ℹ️ يجب تعيين TELEGRAM_BOT_TOKEN أو BOT_TOKEN في ملف .env');
     process.exit(1);
 }
 
@@ -269,12 +276,8 @@ process.on('unhandledRejection', (reason, promise) => {
     // لا نقوم بإيقاف البرنامج في حالة unhandledRejection
     // لكن نسجل الخطأ للمراقبة
 });
-        }
-    }
-    console.log('👋 إنهاء البرنامج...');
-    process.exit(0);
-});
 
+// ========== إعداد رفع الملفات ==========
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
