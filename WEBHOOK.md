@@ -36,6 +36,10 @@ WEBHOOK_URL=https://yourdomain.com
 
 # Optional: Custom webhook path (default is /webhook)
 WEBHOOK_PATH=/webhook
+
+# Optional: Webhook secret token for validation
+# If not set, a random token will be auto-generated
+WEBHOOK_SECRET=your-secret-token-here
 ```
 
 2. **Restart the bot:**
@@ -88,6 +92,8 @@ Check if webhook is set:
 ```bash
 curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 ```
+
+⚠️ **Security Note**: Never paste your bot token directly into a browser URL bar. Always use `curl` or other secure command-line tools to avoid exposing your token in browser history.
 
 You should see:
 ```json
@@ -176,7 +182,12 @@ WEBHOOK_PATH=/telegram-webhook
 1. **Keep your bot token secret** - Never commit it to version control
 2. **Use environment variables** - Store configuration in `.env` file
 3. **HTTPS only** - Telegram requires secure connections
-4. **Validate updates** - The bot processes all updates from the webhook endpoint
+4. **Webhook Secret Token** - The bot supports optional secret token validation
+   - Set `WEBHOOK_SECRET` in your `.env` file
+   - Telegram will send this token in the `X-Telegram-Bot-Api-Secret-Token` header
+   - The bot validates this token to ensure requests are from Telegram
+   - If not set, a random token is auto-generated for your security
+5. **Never expose your token** - Don't paste it in browser URLs or public logs
 
 ## Monitoring
 

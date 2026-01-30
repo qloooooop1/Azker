@@ -57,6 +57,8 @@ const PID_FILE = path.join(DATA_DIR, 'bot.pid');
 const USE_WEBHOOK = process.env.USE_WEBHOOK === 'true';
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
+// Optional: Secret token for webhook validation (randomly generated if not provided)
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || Math.random().toString(36).substring(2, 15);
 
 let bot;
 let isPolling = false;
@@ -70,12 +72,22 @@ let pollingErrorHandler = null;
 // ========== Process Locking Functions ==========
 function acquireProcessLock() {
     try {
-        // Check if PID file exists
-        if (fs.existsSync(PID_FILE)) {
-            const oldPid = fs.readFileSync(PID_FILE, 'utf8').trim();
+        // Try to create PID file with 'wx' flag for atomic operation
+        // This will fail if file already exists, preventing race conditions
+        try {
+            fs.writeFileSync(PID_FILE, process.pid.toString(), { flag: 'wx', mode: 0o644 });
+            console.log(`✅ تم الحصول على قفل العملية (PID: ${process.pid})`);
+            console.log(`📁 ملف PID: ${PID_FILE}`);
+            return true;
+        } catch (error) {
+            if (error.code !== 'EEXIST') {
+                throw error;
+            }
+            
+            // File exists - check if process is still running
+            const oldPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
             console.log(`⚠️ وجد ملف PID موجود: ${oldPid}`);
             
-            // Check if the process is still running
             try {
                 // Sending signal 0 checks if process exists without killing it
                 process.kill(oldPid, 0);
@@ -87,14 +99,14 @@ function acquireProcessLock() {
                 // Process doesn't exist - old PID file from crashed process
                 console.log('ℹ️ ملف PID قديم من عملية متوقفة، سيتم حذفه');
                 fs.unlinkSync(PID_FILE);
+                
+                // Retry with atomic write
+                fs.writeFileSync(PID_FILE, process.pid.toString(), { flag: 'wx', mode: 0o644 });
+                console.log(`✅ تم الحصول على قفل العملية (PID: ${process.pid})`);
+                console.log(`📁 ملف PID: ${PID_FILE}`);
+                return true;
             }
         }
-        
-        // Write current PID
-        fs.writeFileSync(PID_FILE, process.pid.toString(), 'utf8');
-        console.log(`✅ تم الحصول على قفل العملية (PID: ${process.pid})`);
-        console.log(`📁 ملف PID: ${PID_FILE}`);
-        return true;
     } catch (error) {
         console.error('❌ خطأ في الحصول على قفل العملية:', error.message);
         return false;
@@ -191,14 +203,19 @@ async function setupWebhook() {
         console.log('🌐 إعداد Webhook...');
         console.log(`📍 URL: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
         
-        // Delete any existing webhook first
-        await bot.deleteWebHook();
-        console.log('🧹 تم حذف webhook القديم');
-        
-        // Set new webhook
-        const result = await bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`, {
+        // Webhook options
+        const webhookOptions = {
             drop_pending_updates: true
-        });
+        };
+        
+        // Add secret token if configured
+        if (WEBHOOK_SECRET) {
+            webhookOptions.secret_token = WEBHOOK_SECRET;
+            console.log('🔒 تم إضافة secret token للأمان');
+        }
+        
+        // Set new webhook (delete old one automatically)
+        const result = await bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`, webhookOptions);
         
         if (result) {
             console.log('✅ تم إعداد Webhook بنجاح!');
@@ -250,15 +267,20 @@ function continueInitialization() {
     
     // Webhook mode setup
     if (USE_WEBHOOK) {
+        let webhookSetupCompleted = false;
         setupWebhook().then(success => {
-            if (!success) {
+            if (!success && !webhookSetupCompleted) {
+                webhookSetupCompleted = true;
                 console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
                 startPollingMode();
             }
         }).catch(err => {
-            console.error('❌ خطأ في setupWebhook:', err.message);
-            console.log('⚠️ التراجع إلى polling...');
-            startPollingMode();
+            if (!webhookSetupCompleted) {
+                webhookSetupCompleted = true;
+                console.error('❌ خطأ في setupWebhook:', err.message);
+                console.log('⚠️ التراجع إلى polling...');
+                startPollingMode();
+            }
         });
     } else {
         // Polling mode
@@ -393,7 +415,12 @@ async function gracefulShutdown(signal) {
             isWebhookActive = false;
             console.log('✅ تم حذف webhook بنجاح');
         } catch (err) {
-            console.error('❌ خطأ في حذف webhook:', err.message);
+            // Ignore errors if webhook doesn't exist
+            if (err.message && !err.message.includes('not found')) {
+                console.error('❌ خطأ في حذف webhook:', err.message);
+            } else {
+                console.log('ℹ️ لم يكن هناك webhook نشط');
+            }
         }
     }
     
@@ -452,7 +479,8 @@ process.on('uncaughtException', (err) => {
             bot.stopPolling();
         }
         if (bot && isWebhookActive) {
-            bot.deleteWebHook();
+            // Don't await in synchronous error handler
+            bot.deleteWebHook().catch(() => {});
         }
         if (db) {
             db.close(() => {});
@@ -1391,12 +1419,25 @@ app.post(WEBHOOK_PATH, (req, res) => {
         return res.sendStatus(403);
     }
     
+    // Optional: Validate webhook secret from header
+    const secretToken = req.headers['x-telegram-bot-api-secret-token'];
+    if (WEBHOOK_SECRET && secretToken !== WEBHOOK_SECRET) {
+        console.log('⚠️ تم رفض طلب webhook بسبب secret token غير صحيح');
+        return res.sendStatus(403);
+    }
+    
     try {
         bot.processUpdate(req.body);
         res.sendStatus(200);
     } catch (error) {
         console.error('❌ خطأ في معالجة webhook update:', error);
-        res.sendStatus(500);
+        // Return 200 to prevent Telegram from retrying on client errors
+        // Only return 500 for server errors that might be transient
+        if (error.message && error.message.includes('Telegram')) {
+            res.sendStatus(500);
+        } else {
+            res.sendStatus(200);
+        }
     }
 });
 
@@ -1407,7 +1448,6 @@ app.get('/health', (req, res) => {
         timestamp: new Date().toISOString(),
         mode: USE_WEBHOOK ? 'webhook' : 'polling',
         active: USE_WEBHOOK ? isWebhookActive : isPolling,
-        pid: process.pid,
         uptime: process.uptime()
     };
     res.json(status);
