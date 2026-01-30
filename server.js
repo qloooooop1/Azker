@@ -951,8 +951,10 @@ const scheduledJobs = new Map();
 
 // وظيفة لإرسال الأذكار المجدولة
 async function sendScheduledAzkar(adkarId) {
+    console.log('═'.repeat(60));
     console.log(`📅 تشغيل مهمة مجدولة للذكر رقم ${adkarId}`);
     console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
+    console.log('═'.repeat(60));
     
     try {
         // جلب الذكر من قاعدة البيانات
@@ -971,6 +973,10 @@ async function sendScheduledAzkar(adkarId) {
             return;
         }
         
+        console.log(`📖 الذكر: "${adkar.title}"`);
+        console.log(`📂 القسم: ${adkar.category_name || 'غير محدد'}`);
+        console.log(`⏰ الوقت المجدول: ${adkar.schedule_time}`);
+        
         // التحقق من الجدولة
         if (!shouldSendToday(adkar)) {
             console.log(`⏭️ تخطي الذكر ${adkarId} - غير مجدول لهذا اليوم`);
@@ -988,7 +994,7 @@ async function sendScheduledAzkar(adkarId) {
         });
         
         if (sentToday > 0) {
-            console.log(`✓ الذكر ${adkarId} تم إرساله اليوم بالفعل`);
+            console.log(`✓ الذكر ${adkarId} تم إرساله اليوم بالفعل (${sentToday} مرة)`);
             return;
         }
         
@@ -1001,25 +1007,35 @@ async function sendScheduledAzkar(adkarId) {
         });
         
         if (groups.length === 0) {
-            console.log('⚠️ لا توجد مجموعات نشطة');
+            console.log('⚠️ لا توجد مجموعات نشطة لإرسال الذكر إليها');
+            console.log('💡 تلميح: أضف البوت إلى مجموعة أو فعّل البوت في المجموعات الموجودة');
             return;
         }
         
-        console.log(`📤 نشر الذكر "${adkar.title}" إلى ${groups.length} مجموعة`);
+        console.log(`📤 نشر الذكر "${adkar.title}" إلى ${groups.length} مجموعة:`);
+        groups.forEach(group => {
+            console.log(`   - ${group.title || 'بدون اسم'} (${group.chat_id})`);
+        });
         
         // إرسال لكل مجموعة
+        let successCount = 0;
+        let failCount = 0;
         for (const group of groups) {
             try {
                 await sendAdkarToGroup(group.chat_id, adkar);
-                console.log(`✓ تم إرسال الذكر إلى المجموعة ${group.title || group.chat_id}`);
+                successCount++;
+                console.log(`   ✓ تم إرسال الذكر إلى المجموعة ${group.title || group.chat_id}`);
                 // تأخير لتجنب الحظر
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (error) {
-                console.error(`❌ خطأ في إرسال الذكر إلى المجموعة ${group.chat_id}:`, error.message);
+                failCount++;
+                console.error(`   ❌ خطأ في إرسال الذكر إلى المجموعة ${group.chat_id}:`, error.message);
             }
         }
         
         console.log(`✅ اكتملت عملية نشر الذكر ${adkarId}`);
+        console.log(`📊 النتائج: ${successCount} نجحت، ${failCount} فشلت من أصل ${groups.length} مجموعة`);
+        console.log('═'.repeat(60));
         
     } catch (error) {
         console.error(`❌ خطأ في sendScheduledAzkar للذكر ${adkarId}:`, error);
@@ -1071,6 +1087,7 @@ function scheduleAdkar(adkar) {
 // وظيفة لتحميل وجدولة جميع الأذكار
 function loadAndScheduleAllAzkar() {
     console.log('🔄 تحميل وجدولة جميع الأذكار...');
+    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
     
     db.all(`SELECT a.*, c.name as category_name FROM adkar a 
            LEFT JOIN categories c ON a.category_id = c.id 
@@ -1078,15 +1095,21 @@ function loadAndScheduleAllAzkar() {
         (err, adkarList) => {
             if (err) {
                 console.error('❌ خطأ في جلب الأذكار:', err);
+                console.error('   Stack trace:', err.stack);
                 return;
             }
             
             if (!adkarList || adkarList.length === 0) {
                 console.log('⚠️ لا توجد أذكار نشطة للجدولة');
+                console.log('💡 تلميح: أضف أذكار من لوحة التحكم أولاً');
                 return;
             }
             
             console.log(`📋 تم العثور على ${adkarList.length} ذكر نشط`);
+            console.log('📋 قائمة الأذكار المراد جدولتها:');
+            adkarList.forEach(adkar => {
+                console.log(`   - ID: ${adkar.id}, العنوان: "${adkar.title}", الوقت: ${adkar.schedule_time}`);
+            });
             
             // جدولة كل ذكر
             adkarList.forEach(adkar => {
@@ -1094,6 +1117,7 @@ function loadAndScheduleAllAzkar() {
             });
             
             console.log(`✅ تم جدولة ${scheduledJobs.size} ذكر بنجاح`);
+            console.log(`📊 المهام المجدولة النشطة الآن: ${scheduledJobs.size}`);
         });
 }
 
@@ -1101,8 +1125,13 @@ function loadAndScheduleAllAzkar() {
 // الانتظار للتأكد من اتصال قاعدة البيانات والبوت قبل جدولة الأذكار
 const SCHEDULER_STARTUP_DELAY = parseInt(process.env.SCHEDULER_STARTUP_DELAY || '5000', 10);
 setTimeout(() => {
-    if (isPolling) {
+    // FIXED: Schedule azkar in both polling AND webhook modes
+    // Previously only worked in polling mode which broke scheduled reminders in webhook mode
+    if (bot) {
+        console.log(`🔄 بدء جدولة الأذكار (الوضع: ${USE_WEBHOOK ? 'Webhook' : 'Polling'})...`);
         loadAndScheduleAllAzkar();
+    } else {
+        console.error('❌ لا يمكن جدولة الأذكار - البوت غير مهيأ');
     }
 }, SCHEDULER_STARTUP_DELAY);
 
@@ -1122,10 +1151,13 @@ function registerBotHandlers() {
         return;
     }
     
-    console.log('📝 تسجيل معالجات أحداث البوت...');
+    console.log('📝 بدء تسجيل معالجات أحداث البوت...');
+    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
     
     // معالجة إضافة البوت للمجموعة (auto-activation)
     bot.on('my_chat_member', async (update) => {
+    console.log('🔔 تم استدعاء my_chat_member event handler');
+    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
     try {
         const chatId = update.chat.id;
         const chatType = update.chat.type;
@@ -1133,6 +1165,7 @@ function registerBotHandlers() {
         const oldStatus = update.old_chat_member.status;
         
         console.log(`👥 تحديث my_chat_member - المجموعة: ${update.chat.title || chatId}`);
+        console.log(`   نوع الدردشة: ${chatType}`);
         console.log(`   الحالة القديمة: ${oldStatus} -> الحالة الجديدة: ${newStatus}`);
         
         // التحقق من أن البوت تمت إضافته للمجموعة
@@ -1159,12 +1192,18 @@ function registerBotHandlers() {
                     if (err) {
                         console.error(`❌ خطأ في حفظ المجموعة في قاعدة البيانات: ${err.message}`);
                         console.error(`   المجموعة: ${title} (${chatId})`);
+                        console.error(`   Stack trace:`, err.stack);
                         return;
                     }
                     
                     console.log(`✅ تم حفظ وتفعيل المجموعة في قاعدة البيانات بنجاح`);
+                    console.log(`   📛 اسم المجموعة: ${title}`);
+                    console.log(`   🆔 معرّف المجموعة: ${chatId}`);
+                    console.log(`   👤 معرّف المشرف: ${adminId}`);
                     console.log(`   📊 حالة البوت: مفعّل ✓`);
                     console.log(`   📊 المجموعة نشطة: نعم ✓`);
+                    console.log(`   🔢 عدد الصفوف المتأثرة: ${this.changes}`);
+                    console.log(`   ⏰ وقت التسجيل: ${new Date().toLocaleString('ar-SA')}`);
                     
                     // إرسال رسالة ترحيب واضحة مع تأكيد التفعيل
                     (async () => {
@@ -1227,6 +1266,9 @@ function registerBotHandlers() {
 
 
 bot.onText(/\/start/, async (msg) => {
+    console.log('🔔 تم استدعاء /start command handler');
+    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
+    
     const chatId = msg.chat.id;
     const chatType = msg.chat.type;
     
@@ -1261,11 +1303,18 @@ bot.onText(/\/start/, async (msg) => {
                 [chatId, title, adminId, 1, 1], async function(err) {
                     if (err) {
                         console.error('❌ خطأ في حفظ المجموعة أثناء تفعيل البوت:', err);
+                        console.error(`   المجموعة: ${title} (${chatId})`);
+                        console.error(`   Stack trace:`, err.stack);
                         bot.sendMessage(chatId, '❌ حدث خطأ في تفعيل البوت.').catch(e => console.error(e));
                         return;
                     }
                     
                     console.log(`✅ تم حفظ وتفعيل المجموعة بنجاح في قاعدة البيانات`);
+                    console.log(`   📛 اسم المجموعة: ${title}`);
+                    console.log(`   🆔 معرّف المجموعة: ${chatId}`);
+                    console.log(`   👤 معرّف المشرف: ${adminId}`);
+                    console.log(`   🔢 عدد الصفوف المتأثرة: ${this.changes}`);
+                    console.log(`   ⏰ وقت التسجيل: ${new Date().toLocaleString('ar-SA')}`);
                     
                     const escapedTitle = escapeMarkdown(title);
                     const activationMsg = `🕌 *تم تفعيل بوت الأذكار بنجاح!*\n\n` +
@@ -1437,6 +1486,7 @@ bot.onText(/\/help/, (msg) => {
 });
 
     console.log('✅ تم تسجيل جميع معالجات أحداث البوت بنجاح');
+    console.log(`⏰ وقت التسجيل: ${new Date().toLocaleString('ar-SA')}`);
     console.log('📊 معالجات مسجلة:');
     console.log('   - my_chat_member (إضافة/إزالة البوت من المجموعات)');
     console.log('   - /start (تفعيل البوت)');
@@ -1445,6 +1495,7 @@ bot.onText(/\/help/, (msg) => {
     console.log('   - /disable (إيقاف البوت)');
     console.log('   - /status (عرض الحالة)');
     console.log('   - /help (المساعدة)');
+    console.log('✅ معالجات البوت جاهزة للاستقبال');
 }
 
 // ========== Webhook Endpoint ==========
