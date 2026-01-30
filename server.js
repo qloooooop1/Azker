@@ -15,11 +15,26 @@ const schedule = require('node-schedule');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ========== إعداد مسار التخزين الدائم ==========
+// استخدام /data في بيئة الإنتاج (Render) و ./data محليا
+const DATA_DIR = process.env.NODE_ENV === 'production' && fs.existsSync('/data') 
+    ? '/data' 
+    : path.join(__dirname, 'data');
+
+// إنشاء مجلد البيانات إذا لم يكن موجوداً
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    console.log(`✅ تم إنشاء مجلد البيانات: ${DATA_DIR}`);
+}
+
+const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'adkar.db');
+console.log(`📁 مسار قاعدة البيانات: ${DB_PATH}`);
+
 // إعدادات الوسائط
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use('/uploads', express.static('uploads'));
+// سيتم تعيين مسار uploads بعد تعريف uploadsDir
 
 // التوافق مع env. file: BOT_TOKEN -> TELEGRAM_BOT_TOKEN
 if (!process.env.TELEGRAM_BOT_TOKEN && process.env.BOT_TOKEN) {
@@ -299,13 +314,18 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // ========== إعداد رفع الملفات ==========
-const uploadsDir = path.join(__dirname, 'uploads');
+// استخدام مجلد uploads داخل مجلد البيانات الدائم
+const uploadsDir = process.env.UPLOAD_PATH || path.join(DATA_DIR, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
     ['audio', 'images', 'pdfs', 'temp'].forEach(dir => {
         fs.mkdirSync(path.join(uploadsDir, dir), { recursive: true });
     });
+    console.log(`✅ تم إنشاء مجلد الملفات: ${uploadsDir}`);
 }
+
+// تفعيل خدمة الملفات الثابتة من مجلد uploads
+app.use('/uploads', express.static(uploadsDir));
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -383,7 +403,7 @@ async function downloadFileFromUrl(url, fileType) {
 }
 
 // ========== قاعدة البيانات ==========
-const db = new sqlite3.Database('./adkar.db', (err) => {
+const db = new sqlite3.Database(DB_PATH, (err) => {
     if (err) {
         console.error('❌ خطأ في فتح قاعدة البيانات:', err);
     } else {

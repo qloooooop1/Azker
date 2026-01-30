@@ -14,12 +14,27 @@ if (!botToken) {
     process.exit(1);
 }
 
+// ========== إعداد مسار التخزين الدائم ==========
+// استخدام /data في بيئة الإنتاج (Render) و ./data محليا
+const DATA_DIR = process.env.NODE_ENV === 'production' && fs.existsSync('/data') 
+    ? '/data' 
+    : path.join(__dirname, 'data');
+
+// إنشاء مجلد البيانات إذا لم يكن موجوداً
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    console.log(`✅ تم إنشاء مجلد البيانات: ${DATA_DIR}`);
+}
+
+const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'adkar.db');
+console.log(`📁 مسار قاعدة البيانات: ${DB_PATH}`);
+
 // تهيئة البوت
 const bot = new TelegramBot(botToken, { polling: true });
 console.log('✅ بوت التلجرام يعمل...');
 
 // تهيئة قاعدة البيانات
-const db = new sqlite3.Database(process.env.DB_PATH || './adkar.db');
+const db = new sqlite3.Database(DB_PATH);
 
 // إنشاء الجداول الأساسية
 db.serialize(() => {
