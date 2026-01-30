@@ -50,13 +50,84 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 }
 
 // ========== الحل النهائي لمشكلة 409 Conflict ==========
+// PID file for process locking
+const PID_FILE = path.join(DATA_DIR, 'bot.pid');
+
+// Webhook configuration
+const USE_WEBHOOK = process.env.USE_WEBHOOK === 'true';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
+// Optional: Secret token for webhook validation (randomly generated if not provided)
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || Math.random().toString(36).substring(2, 15);
+
 let bot;
 let isPolling = false;
+let isWebhookActive = false;
 let initializationInProgress = false;
 let retryCount = 0;
 const MAX_RETRY_ATTEMPTS = 5;
 let reconnectTimeout = null;
 let pollingErrorHandler = null;
+
+// ========== Process Locking Functions ==========
+function acquireProcessLock() {
+    try {
+        // Try to create PID file with 'wx' flag for atomic operation
+        // This will fail if file already exists, preventing race conditions
+        try {
+            fs.writeFileSync(PID_FILE, process.pid.toString(), { flag: 'wx', mode: 0o644 });
+            console.log(`✅ تم الحصول على قفل العملية (PID: ${process.pid})`);
+            console.log(`📁 ملف PID: ${PID_FILE}`);
+            return true;
+        } catch (error) {
+            if (error.code !== 'EEXIST') {
+                throw error;
+            }
+            
+            // File exists - check if process is still running
+            const oldPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+            console.log(`⚠️ وجد ملف PID موجود: ${oldPid}`);
+            
+            try {
+                // Sending signal 0 checks if process exists without killing it
+                process.kill(oldPid, 0);
+                console.error(`❌ خطأ: هناك نسخة أخرى من البوت تعمل بالفعل (PID: ${oldPid})`);
+                console.error('ℹ️ يرجى إيقاف النسخة الأخرى أولاً أو حذف الملف إذا كانت العملية قد توقفت بشكل غير طبيعي:');
+                console.error(`   rm ${PID_FILE}`);
+                process.exit(1);
+            } catch (e) {
+                // Process doesn't exist - old PID file from crashed process
+                console.log('ℹ️ ملف PID قديم من عملية متوقفة، سيتم حذفه');
+                fs.unlinkSync(PID_FILE);
+                
+                // Retry with atomic write
+                fs.writeFileSync(PID_FILE, process.pid.toString(), { flag: 'wx', mode: 0o644 });
+                console.log(`✅ تم الحصول على قفل العملية (PID: ${process.pid})`);
+                console.log(`📁 ملف PID: ${PID_FILE}`);
+                return true;
+            }
+        }
+    } catch (error) {
+        console.error('❌ خطأ في الحصول على قفل العملية:', error.message);
+        return false;
+    }
+}
+
+function releaseProcessLock() {
+    try {
+        if (fs.existsSync(PID_FILE)) {
+            const pidInFile = fs.readFileSync(PID_FILE, 'utf8').trim();
+            if (pidInFile === process.pid.toString()) {
+                fs.unlinkSync(PID_FILE);
+                console.log('✅ تم تحرير قفل العملية');
+            } else {
+                console.log(`⚠️ ملف PID يحتوي على PID مختلف (${pidInFile} vs ${process.pid})`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ خطأ في تحرير قفل العملية:', error.message);
+    }
+}
 
 // تنظيف event listeners من البوت القديم
 function cleanupOldBot() {
@@ -121,9 +192,51 @@ function initializeBot() {
     }
 }
 
+async function setupWebhook() {
+    try {
+        if (!WEBHOOK_URL) {
+            console.error('❌ خطأ: WEBHOOK_URL غير محدد في ملف .env');
+            console.log('ℹ️ سيتم التراجع إلى وضع polling...');
+            return false;
+        }
+        
+        console.log('🌐 إعداد Webhook...');
+        console.log(`📍 URL: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        
+        // Webhook options
+        const webhookOptions = {
+            drop_pending_updates: true
+        };
+        
+        // Add secret token if configured
+        if (WEBHOOK_SECRET) {
+            webhookOptions.secret_token = WEBHOOK_SECRET;
+            console.log('🔒 تم إضافة secret token للأمان');
+        }
+        
+        // Set new webhook (delete old one automatically)
+        const result = await bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`, webhookOptions);
+        
+        if (result) {
+            console.log('✅ تم إعداد Webhook بنجاح!');
+            console.log(`📊 حالة webhook: نشط`);
+            console.log(`⏰ وقت بدء التشغيل: ${new Date().toLocaleString('ar-SA')}`);
+            isWebhookActive = true;
+            initializationInProgress = false;
+            return true;
+        } else {
+            console.error('❌ فشل إعداد webhook');
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ خطأ في إعداد webhook:', error.message);
+        return false;
+    }
+}
+
 function continueInitialization() {
     // إنشاء البوت جديد
-    bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+    const botOptions = {
         request: {
             timeout: 60000,
             agentOptions: {
@@ -131,7 +244,15 @@ function continueInitialization() {
                 family: 4
             }
         }
-    });
+    };
+    
+    // In webhook mode, we don't enable polling
+    if (USE_WEBHOOK) {
+        botOptions.polling = false;
+        console.log('🌐 وضع Webhook مفعّل');
+    }
+    
+    bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, botOptions);
     
     console.log('✅ تم إنشاء instance جديد من البوت');
     
@@ -144,6 +265,30 @@ function continueInitialization() {
         console.log('ℹ️ setMaxListeners غير متاح في هذا الإصدار');
     }
     
+    // Webhook mode setup
+    if (USE_WEBHOOK) {
+        let webhookSetupCompleted = false;
+        setupWebhook().then(success => {
+            if (!success && !webhookSetupCompleted) {
+                webhookSetupCompleted = true;
+                console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
+                startPollingMode();
+            }
+        }).catch(err => {
+            if (!webhookSetupCompleted) {
+                webhookSetupCompleted = true;
+                console.error('❌ خطأ في setupWebhook:', err.message);
+                console.log('⚠️ التراجع إلى polling...');
+                startPollingMode();
+            }
+        });
+    } else {
+        // Polling mode
+        startPollingMode();
+    }
+}
+
+function startPollingMode() {
     // معالجة أخطاء polling
     pollingErrorHandler = async (error) => {
         console.error('❌ خطأ في polling:', error.message);
@@ -152,6 +297,8 @@ function continueInitialization() {
         
         if (error.message.includes('409 Conflict')) {
             console.log('⚠️ تم اكتشاف 409 Conflict - نسخة أخرى من البوت تعمل');
+            console.log('💡 تلميح: تأكد من عدم تشغيل نسخ متعددة من البوت');
+            console.log('💡 أو استخدم وضع Webhook بدلاً من polling (USE_WEBHOOK=true)');
             console.log('🔄 إعادة تهيئة البوت بعد إيقاف النسخة الأخرى...');
             isPolling = false;
             initializationInProgress = false;
@@ -167,6 +314,7 @@ function continueInitialization() {
                 }, retryDelay);
             } else {
                 console.error('❌ فشلت جميع المحاولات. يرجى التأكد من عدم وجود نسخ أخرى من البوت تعمل.');
+                console.error(`💡 أو حذف ملف PID إذا كانت العملية قد توقفت: rm ${PID_FILE}`);
                 initializationInProgress = false; // إعادة تعيين الحالة للسماح بإعادة المحاولة يدوياً
             }
         } else if (error.message.includes('ETELEGRAM') || error.message.includes('ECONNRESET') || 
@@ -224,7 +372,15 @@ console.log('🚀 بدء تطبيق بوت الأذكار');
 console.log('📅 التاريخ:', new Date().toLocaleString('ar-SA'));
 console.log('🔧 البيئة:', process.env.NODE_ENV || 'development');
 console.log('🌐 المنفذ:', PORT);
+console.log('🔧 وضع التشغيل:', USE_WEBHOOK ? 'Webhook' : 'Polling');
 console.log('='.repeat(50));
+
+// Acquire process lock before initializing bot
+if (!acquireProcessLock()) {
+    console.error('❌ فشل الحصول على قفل العملية - الخروج');
+    process.exit(1);
+}
+
 initializeBot();
 
 // معالجة إغلاق التطبيق بشكل آمن
@@ -239,7 +395,7 @@ async function gracefulShutdown(signal) {
         console.log('✅ تم إلغاء محاولات إعادة الاتصال المعلقة');
     }
     
-    // إيقاف polling
+    // إيقاف polling أو webhook
     if (bot && isPolling) {
         try {
             console.log('🛑 إيقاف polling...');
@@ -248,6 +404,23 @@ async function gracefulShutdown(signal) {
             console.log('✅ تم إيقاف polling بنجاح');
         } catch (err) {
             console.error('❌ خطأ في إيقاف polling:', err.message);
+        }
+    }
+    
+    // Delete webhook if in webhook mode
+    if (bot && isWebhookActive) {
+        try {
+            console.log('🛑 حذف webhook...');
+            await bot.deleteWebHook();
+            isWebhookActive = false;
+            console.log('✅ تم حذف webhook بنجاح');
+        } catch (err) {
+            // Ignore errors if webhook doesn't exist
+            if (err.message && !err.message.includes('not found')) {
+                console.error('❌ خطأ في حذف webhook:', err.message);
+            } else {
+                console.log('ℹ️ لم يكن هناك webhook نشط');
+            }
         }
     }
     
@@ -285,6 +458,9 @@ async function gracefulShutdown(signal) {
         });
     }
     
+    // Release process lock
+    releaseProcessLock();
+    
     console.log('👋 إنهاء البرنامج...');
     process.exit(0);
 }
@@ -302,9 +478,14 @@ process.on('uncaughtException', (err) => {
         if (bot && isPolling) {
             bot.stopPolling();
         }
+        if (bot && isWebhookActive) {
+            // Don't await in synchronous error handler
+            bot.deleteWebHook().catch(() => {});
+        }
         if (db) {
             db.close(() => {});
         }
+        releaseProcessLock();
     } catch (e) {
         console.error('خطأ في التنظيف:', e.message);
     }
@@ -1228,6 +1409,48 @@ bot.onText(/\/help/, (msg) => {
         `• تحكم سهل للمشرفين`;
 
     bot.sendMessage(msg.chat.id, helpMsg, { parse_mode: 'Markdown' });
+});
+
+// ========== Webhook Endpoint ==========
+// This endpoint receives updates from Telegram when webhook mode is enabled
+app.post(WEBHOOK_PATH, (req, res) => {
+    if (!USE_WEBHOOK || !bot) {
+        console.log('⚠️ تم استلام طلب webhook لكن الوضع غير مفعّل');
+        return res.sendStatus(403);
+    }
+    
+    // Optional: Validate webhook secret from header
+    const secretToken = req.headers['x-telegram-bot-api-secret-token'];
+    if (WEBHOOK_SECRET && secretToken !== WEBHOOK_SECRET) {
+        console.log('⚠️ تم رفض طلب webhook بسبب secret token غير صحيح');
+        return res.sendStatus(403);
+    }
+    
+    try {
+        bot.processUpdate(req.body);
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('❌ خطأ في معالجة webhook update:', error);
+        // Return 200 to prevent Telegram from retrying on client errors
+        // Only return 500 for server errors that might be transient
+        if (error.message && error.message.includes('Telegram')) {
+            res.sendStatus(500);
+        } else {
+            res.sendStatus(200);
+        }
+    }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    const status = {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        mode: USE_WEBHOOK ? 'webhook' : 'polling',
+        active: USE_WEBHOOK ? isWebhookActive : isPolling,
+        uptime: process.uptime()
+    };
+    res.json(status);
 });
 
 // ========== واجهات API للوحة التحكم ==========
