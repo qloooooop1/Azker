@@ -13,18 +13,21 @@
 
 ### حل مشكلة 409 Conflict
 
-يوفر البوت حلين لمنع أخطاء 409 Conflict:
+البوت يستخدم **وضع Webhook كإعداد افتراضي** لضمان عدم حدوث تعارضات:
 
-#### 1. قفل العملية (Process Locking)
+#### وضع Webhook (الافتراضي - موصى به)
+- **يمنع تعارضات 409 Conflict نهائياً**
+- لا يستخدم getUpdates polling
+- مثالي لمنصات الاستضافة مثل Render.com
+- أكثر كفاءة وموثوقية من Polling
+- راجع [WEBHOOK.md](WEBHOOK.md) للتفاصيل الكاملة.
+
+#### قفل العملية (Process Locking) - حماية إضافية
 - يمنع تشغيل نسخ متعددة من البوت في نفس الوقت
 - يستخدم ملف PID للتحقق من النسخ الجارية
 - تنظيف تلقائي عند إيقاف البوت
 
-#### 2. وضع Webhook (موصى به للإنتاج)
-- بديل لوضع Polling التقليدي
-- يمنع تعارضات getUpdates
-- أكثر كفاءة وموثوقية
-- راجع [WEBHOOK.md](WEBHOOK.md) للتفاصيل الكاملة
+**ملاحظة**: للتطوير المحلي، يمكنك استخدام وضع Polling بتغيير `USE_WEBHOOK=false` في ملف `.env`
 
 ### التخزين الدائم (Persistent Storage)
 
@@ -37,13 +40,29 @@
 
 ### التثبيت والتشغيل
 
+#### للإنتاج (Production - Render.com)
+
+1. انسخ `env.example` إلى `.env` أو استخدم لوحة تحكم Render
+2. قم بتعيين المتغيرات المطلوبة في ملف `.env` أو في Render dashboard:
+   ```env
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   USE_WEBHOOK=true
+   WEBHOOK_URL=https://your-service-name.onrender.com
+   ```
+3. انشر على Render.com - البوت سيعمل تلقائياً بوضع Webhook.
+
+#### للتطوير المحلي (Local Development)
+
 ```bash
 # تثبيت المكتبات
 npm install
 
 # إعداد ملف البيئة
 cp env.example .env
+
 # قم بتحرير .env وإضافة توكن البوت
+# للتطوير المحلي، استخدم وضع Polling:
+# USE_WEBHOOK=false
 
 # تشغيل البوت
 npm start

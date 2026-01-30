@@ -12,11 +12,36 @@ This occurs when multiple instances of the bot attempt to receive updates from T
 
 ## Solution Implemented
 
-This PR implements **two complementary solutions** to prevent the 409 Conflict error:
+This PR implements **webhook mode as the default** to prevent the 409 Conflict error, with polling mode available as a fallback:
 
-### 1. Process Locking (PID-based)
+### 1. Webhook Mode (Default - Recommended)
 
-A robust process locking mechanism ensures only one bot instance runs at a time:
+The primary solution that inherently prevents conflicts:
+
+**Features:**
+- ✅ **Default mode** - eliminates polling conflicts completely
+- ✅ No polling - Telegram pushes updates to your server
+- ✅ More efficient and lower latency
+- ✅ Secret token validation for security
+- ✅ Perfect for production deployments (especially Render.com)
+- ✅ Graceful webhook cleanup on shutdown
+
+**Configuration:**
+```env
+USE_WEBHOOK=true  # Default
+WEBHOOK_URL=https://your-service-name.onrender.com
+WEBHOOK_PATH=/webhook
+WEBHOOK_SECRET=your-secret-token  # Optional, auto-generated if not set
+```
+
+**Security Features:**
+- Secret token validation via `X-Telegram-Bot-Api-Secret-Token` header
+- Intelligent error handling (200 for client errors, 500 for server errors)
+- No PID exposure in health check endpoint
+
+### 2. Process Locking (PID-based) - Additional Protection
+
+A robust process locking mechanism that works in both webhook and polling modes:
 
 **Features:**
 - ✅ Atomic file creation using `wx` flag to prevent race conditions
@@ -24,6 +49,7 @@ A robust process locking mechanism ensures only one bot instance runs at a time:
 - ✅ Automatic detection and cleanup of stale locks from crashed processes
 - ✅ Graceful cleanup on shutdown (SIGINT, SIGTERM)
 - ✅ Error handling in uncaughtException
+- ✅ Works with both webhook and polling modes
 
 **How it works:**
 1. On startup, bot attempts to create a PID file atomically
@@ -34,29 +60,14 @@ A robust process locking mechanism ensures only one bot instance runs at a time:
 
 **Location:** PID file is stored at `{DATA_DIR}/bot.pid`
 
-### 2. Webhook Mode (Recommended for Production)
+### 3. Polling Mode (Available for Local Development)
 
-An alternative to polling that inherently prevents conflicts:
-
-**Features:**
-- ✅ No polling - Telegram pushes updates to your server
-- ✅ More efficient and lower latency
-- ✅ Secret token validation for security
-- ✅ Automatic fallback to polling if webhook setup fails
-- ✅ Graceful webhook cleanup on shutdown
+Available as a fallback for local development when webhooks aren't practical:
 
 **Configuration:**
 ```env
-USE_WEBHOOK=true
-WEBHOOK_URL=https://yourdomain.com
-WEBHOOK_PATH=/webhook
-WEBHOOK_SECRET=your-secret-token  # Optional, auto-generated if not set
+USE_WEBHOOK=false  # Only for local development
 ```
-
-**Security Features:**
-- Secret token validation via `X-Telegram-Bot-Api-Secret-Token` header
-- Intelligent error handling (200 for client errors, 500 for server errors)
-- No PID exposure in health check endpoint
 
 ## Files Changed
 
@@ -72,10 +83,14 @@ WEBHOOK_SECRET=your-secret-token  # Optional, auto-generated if not set
 - **Added webhook cleanup in uncaughtException handler with `drop_pending_updates: true`**
 
 ### env.example
-- Added `USE_WEBHOOK` configuration flag
-- Added `WEBHOOK_URL` for webhook endpoint
-- Added `WEBHOOK_PATH` for custom webhook path
-- Added `WEBHOOK_SECRET` for security validation
+- Set `USE_WEBHOOK=true` as default (changed from false)
+- Added example `WEBHOOK_URL` value
+- Enhanced comments to emphasize webhook as recommended default
+
+### render.yaml
+- Added webhook environment variables (`USE_WEBHOOK`, `WEBHOOK_URL`, `WEBHOOK_PATH`, `WEBHOOK_SECRET`)
+- Changed health check path from `/` to `/health`
+- Configured for optimal webhook mode deployment
 
 ### WEBHOOK.md (New)
 - Comprehensive webhook setup guide
@@ -103,25 +118,12 @@ All tests passed:
 
 ## Usage
 
-### Default Mode (Polling with Process Lock)
+### Default Mode (Webhook - Recommended for Production)
 ```bash
-# Just run the bot normally
-npm start
-```
-
-If another instance is already running:
-```
-❌ خطأ: هناك نسخة أخرى من البوت تعمل بالفعل (PID: 12345)
-ℹ️ يرجى إيقاف النسخة الأخرى أولاً أو حذف الملف إذا كانت العملية قد توقفت بشكل غير طبيعي:
-   rm /path/to/data/bot.pid
-```
-
-### Webhook Mode (Recommended)
-```bash
-# Configure in .env
-USE_WEBHOOK=true
-WEBHOOK_URL=https://yourdomain.com
-WEBHOOK_SECRET=my-secret-token
+# Configure in .env (webhook is now default)
+USE_WEBHOOK=true  # This is the default
+WEBHOOK_URL=https://your-service-name.onrender.com
+WEBHOOK_SECRET=my-secret-token  # Optional
 
 # Start the bot
 npm start
@@ -134,6 +136,22 @@ Output:
 📍 URL: https://yourdomain.com/webhook
 🔒 تم إضافة secret token للأمان
 ✅ تم إعداد Webhook بنجاح!
+```
+
+### Polling Mode (For Local Development Only)
+```bash
+# Configure in .env
+USE_WEBHOOK=false  # Override default for local testing
+
+# Start the bot
+npm start
+```
+
+If another instance is already running:
+```
+❌ خطأ: هناك نسخة أخرى من البوت تعمل بالفعل (PID: 12345)
+ℹ️ يرجى إيقاف النسخة الأخرى أولاً أو حذف الملف إذا كانت العملية قد توقفت بشكل غير طبيعي:
+   rm /path/to/data/bot.pid
 ```
 
 ## Monitoring
@@ -164,23 +182,34 @@ Response:
 
 ## Benefits
 
-1. **Prevents 409 Conflicts**: Both solutions eliminate the possibility of multiple instances
-2. **Production Ready**: Webhook mode is ideal for production deployments
-3. **Self-Healing**: Automatic stale lock cleanup and fallback mechanisms
-4. **Secure**: Secret token validation and proper error handling
-5. **Well-Documented**: Comprehensive guides for setup and troubleshooting
-6. **Backward Compatible**: Polling mode still works with added protection
-7. **Render Zero-Downtime Deployment Support**: `drop_pending_updates: true` ensures clean handoffs during deployments
+1. **Prevents 409 Conflicts**: Webhook mode (now default) eliminates polling conflicts completely
+2. **Production Ready**: Optimized for production deployments (especially Render.com)
+3. **Zero-Downtime Deployments**: Perfect for Render's rolling deployments
+4. **Self-Healing**: Automatic stale lock cleanup and fallback mechanisms
+5. **Secure**: Secret token validation and proper error handling
+6. **Well-Documented**: Comprehensive guides for setup and troubleshooting
+7. **Backward Compatible**: Polling mode still available for local development
+8. **Render Zero-Downtime Deployment Support**: `drop_pending_updates: true` ensures clean handoffs during deployments
 
 ## Migration Guide
 
-### For Existing Deployments
-No changes required! The process locking is automatic. Your bot will:
-1. Create a PID file on first run
-2. Block duplicate instances automatically
-3. Clean up properly on shutdown
+### For Existing Deployments on Render.com
 
-### To Enable Webhook Mode
+**Important**: Update your environment variables to enable webhook mode:
+
+1. In Render dashboard, add/update these environment variables:
+   ```
+   USE_WEBHOOK=true
+   WEBHOOK_URL=https://your-service-name.onrender.com
+   ```
+2. Redeploy your service
+3. Verify webhook is active by checking logs for: `✅ تم إعداد Webhook بنجاح!`
+
+### For Local Development
+Set `USE_WEBHOOK=false` in your `.env` file to use polling mode locally.
+
+### Advanced: Manual Webhook Configuration
+For advanced use cases where you need to manually configure webhook settings:
 1. Set `USE_WEBHOOK=true` in `.env`
 2. Set `WEBHOOK_URL` to your public domain
 3. Optionally set `WEBHOOK_SECRET` for extra security
