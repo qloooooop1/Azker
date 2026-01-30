@@ -136,7 +136,13 @@ function continueInitialization() {
     console.log('✅ تم إنشاء instance جديد من البوت');
     
     // تعيين الحد الأقصى للـ listeners لتجنب التحذيرات
-    bot.setMaxListeners(20);
+    try {
+        if (typeof bot.setMaxListeners === 'function') {
+            bot.setMaxListeners(20);
+        }
+    } catch (err) {
+        console.log('ℹ️ setMaxListeners غير متاح في هذا الإصدار');
+    }
     
     // معالجة أخطاء polling
     pollingErrorHandler = async (error) => {
