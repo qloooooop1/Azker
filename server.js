@@ -265,6 +265,9 @@ function continueInitialization() {
         console.log('ℹ️ setMaxListeners غير متاح في هذا الإصدار');
     }
     
+    // تسجيل معالجات أحداث البوت
+    registerBotHandlers();
+    
     // Webhook mode setup - will be called after server is listening
     if (USE_WEBHOOK) {
         console.log('🌐 وضع Webhook مفعّل - سيتم إعداد webhook بعد بدء الخادم');
@@ -1112,8 +1115,17 @@ function escapeMarkdown(text) {
 }
 
 // ========== معالجة أوامر البوت ==========
-// معالجة إضافة البوت للمجموعة (auto-activation)
-bot.on('my_chat_member', async (update) => {
+// دالة لتسجيل جميع معالجات أحداث البوت
+function registerBotHandlers() {
+    if (!bot) {
+        console.error('❌ لا يمكن تسجيل معالجات البوت - البوت غير معرّف');
+        return;
+    }
+    
+    console.log('📝 تسجيل معالجات أحداث البوت...');
+    
+    // معالجة إضافة البوت للمجموعة (auto-activation)
+    bot.on('my_chat_member', async (update) => {
     try {
         const chatId = update.chat.id;
         const chatType = update.chat.type;
@@ -1423,6 +1435,17 @@ bot.onText(/\/help/, (msg) => {
 
     bot.sendMessage(msg.chat.id, helpMsg, { parse_mode: 'Markdown' });
 });
+
+    console.log('✅ تم تسجيل جميع معالجات أحداث البوت بنجاح');
+    console.log('📊 معالجات مسجلة:');
+    console.log('   - my_chat_member (إضافة/إزالة البوت من المجموعات)');
+    console.log('   - /start (تفعيل البوت)');
+    console.log('   - /enable (تفعيل البوت)');
+    console.log('   - /activate (تفعيل البوت)');
+    console.log('   - /disable (إيقاف البوت)');
+    console.log('   - /status (عرض الحالة)');
+    console.log('   - /help (المساعدة)');
+}
 
 // ========== Webhook Endpoint ==========
 // This endpoint receives updates from Telegram when webhook mode is enabled
