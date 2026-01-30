@@ -57,8 +57,13 @@ const PID_FILE = path.join(DATA_DIR, 'bot.pid');
 const USE_WEBHOOK = process.env.USE_WEBHOOK === 'true';
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
-// Optional: Secret token for webhook validation (randomly generated if not provided)
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || Math.random().toString(36).substring(2, 15);
+// Optional: Secret token for webhook validation
+// Use environment variable or generate a consistent token based on bot token hash
+const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 
+    (process.env.TELEGRAM_BOT_TOKEN ? 
+        require('crypto').createHash('sha256').update(process.env.TELEGRAM_BOT_TOKEN).digest('hex').substring(0, 32) : 
+        'default-secret-token');
+const HEALTH_URL = WEBHOOK_URL ? `${WEBHOOK_URL}/health` : '';
 
 let bot;
 let isPolling = false;
@@ -68,6 +73,7 @@ let retryCount = 0;
 const MAX_RETRY_ATTEMPTS = 5;
 let reconnectTimeout = null;
 let pollingErrorHandler = null;
+let keepAliveInterval = null;
 
 // ========== Process Locking Functions ==========
 function acquireProcessLock() {
@@ -192,6 +198,29 @@ function initializeBot() {
     }
 }
 
+// التحقق من جاهزية domain
+async function checkDomainReady() {
+    if (!HEALTH_URL) {
+        console.log('ℹ️ لا يوجد HEALTH_URL للتحقق منه');
+        return true;
+    }
+    
+    try {
+        console.log(`🔍 التحقق من جاهزية domain: ${HEALTH_URL}`);
+        const response = await axios.get(HEALTH_URL, { timeout: 10000 });
+        // Accept any 2xx status code as successful
+        if (response.status >= 200 && response.status < 300) {
+            console.log(`✅ Domain جاهز ومتاح (status: ${response.status})`);
+            return true;
+        }
+        console.log(`⚠️ Domain استجاب بحالة: ${response.status}`);
+        return false;
+    } catch (error) {
+        console.log(`⚠️ فشل التحقق من جاهزية domain: ${error.message}`);
+        return false;
+    }
+}
+
 async function setupWebhook() {
     try {
         if (!WEBHOOK_URL) {
@@ -200,8 +229,28 @@ async function setupWebhook() {
             return false;
         }
         
+        // التحقق من جاهزية domain قبل إعداد webhook
+        const isDomainReady = await checkDomainReady();
+        if (!isDomainReady) {
+            console.log('⚠️ Domain غير جاهز بعد، الانتظار 3 ثواني والمحاولة مرة أخرى...');
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            const retryCheck = await checkDomainReady();
+            if (!retryCheck) {
+                console.error('❌ Domain غير متاح، سيتم التراجع إلى polling');
+                return false;
+            }
+        }
+        
         console.log('🌐 إعداد Webhook...');
         console.log(`📍 URL: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        
+        // Delete previous webhook first
+        try {
+            await bot.deleteWebhook({ drop_pending_updates: true });
+            console.log('✅ تم حذف webhook السابق');
+        } catch (err) {
+            console.log('ℹ️ لا يوجد webhook سابق للحذف:', err.message);
+        }
         
         // Webhook options
         const webhookOptions = {
@@ -209,13 +258,13 @@ async function setupWebhook() {
         };
         
         // Add secret token if configured
-        if (WEBHOOK_SECRET) {
-            webhookOptions.secret_token = WEBHOOK_SECRET;
+        if (SECRET_TOKEN) {
+            webhookOptions.secret_token = SECRET_TOKEN;
             console.log('🔒 تم إضافة secret token للأمان');
         }
         
-        // Set new webhook (delete old one automatically)
-        const result = await bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`, webhookOptions);
+        // Set new webhook
+        const result = await bot.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`, webhookOptions);
         
         if (result) {
             console.log('✅ تم إعداد Webhook بنجاح!');
@@ -230,6 +279,7 @@ async function setupWebhook() {
         }
     } catch (error) {
         console.error('❌ خطأ في إعداد webhook:', error.message);
+        console.error('📝 تفاصيل الخطأ:', error);
         return false;
     }
 }
@@ -396,6 +446,13 @@ async function gracefulShutdown(signal) {
     if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
         console.log('✅ تم إلغاء محاولات إعادة الاتصال المعلقة');
+    }
+    
+    // إلغاء keep-alive interval
+    if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+        console.log('✅ تم إيقاف keep-alive mechanism');
     }
     
     // إيقاف polling أو webhook
@@ -1511,34 +1568,44 @@ bot.onText(/\/help/, (msg) => {
 // ========== Webhook Endpoint ==========
 // This endpoint receives updates from Telegram when webhook mode is enabled
 app.post(WEBHOOK_PATH, (req, res) => {
+    const startTime = Date.now();
+    
+    // Log incoming request (without exposing sensitive data)
+    const updateType = req.body.message ? 'message' : 
+                      req.body.callback_query ? 'callback_query' : 
+                      req.body.edited_message ? 'edited_message' : 'other';
+    console.log(`📥 تم استلام طلب webhook في: ${new Date().toISOString()}`);
+    console.log(`📝 Update type: ${updateType}`);
+    
     if (!USE_WEBHOOK || !bot) {
         console.log('⚠️ تم استلام طلب webhook لكن الوضع غير مفعّل');
         return res.sendStatus(403);
     }
     
-    // Optional: Validate webhook secret from header
+    // Check Telegram signature
     const secretToken = req.headers['x-telegram-bot-api-secret-token'];
-    if (WEBHOOK_SECRET && secretToken !== WEBHOOK_SECRET) {
-        console.log('⚠️ تم رفض طلب webhook بسبب secret token غير صحيح');
+    if (SECRET_TOKEN && secretToken !== SECRET_TOKEN) {
+        console.error('❌ Secret token mismatch. Invalid request!');
         return res.sendStatus(403);
     }
     
     try {
+        // Process update first, then send response
         bot.processUpdate(req.body);
-        // Log successful webhook processing (only for messages to avoid spam from other update types)
-        if (req.body.message) {
-            console.log(`✅ تم معالجة webhook update من المستخدم: ${req.body.message.from?.username || req.body.message.from?.id || 'unknown'}`);
-        }
+        
+        const responseTime = Date.now() - startTime;
         res.sendStatus(200);
-    } catch (error) {
-        console.error('❌ خطأ في معالجة webhook update:', error);
-        // Return 200 to prevent Telegram from retrying on client errors
-        // Only return 500 for server errors that might be transient
-        if (error.message && error.message.includes('Telegram')) {
-            res.sendStatus(500);
-        } else {
-            res.sendStatus(200);
+        console.log(`✅ تم معالجة ورد على webhook في ${responseTime}ms`);
+        
+        // Log successful webhook processing (only for messages to avoid spam)
+        if (req.body.message) {
+            const userId = req.body.message.from?.id || 'unknown';
+            console.log(`✅ تم معالجة رسالة من المستخدم: ${userId}`);
         }
+    } catch (error) {
+        console.error('❌ خطأ في معالجة webhook update:', error.message);
+        // Send 500 to allow Telegram to retry
+        res.sendStatus(500);
     }
 });
 
@@ -3320,6 +3387,19 @@ app.listen(PORT, async () => {
                 await startPollingMode().catch(err => {
                     console.error('❌ خطأ في بدء polling:', err.message);
                 });
+            } else {
+                // Start keep-alive mechanism to prevent Render spin-down
+                // NOTE: This is a workaround for Render's free tier. For production,
+                // consider using external monitoring services like UptimeRobot or Cronitor
+                if (WEBHOOK_URL && keepAliveInterval === null) {
+                    console.log('🔄 تفعيل keep-alive mechanism لمنع spin-down على Render');
+                    console.log('ℹ️ ملاحظة: للإنتاج، يُنصح باستخدام خدمات مراقبة خارجية');
+                    keepAliveInterval = setInterval(() => {
+                        axios.get(HEALTH_URL, { timeout: 5000 })
+                            .then(() => console.log('✅ Keep-alive ping successful'))
+                            .catch(err => console.error('⚠️ Keep-alive ping failed:', err.message));
+                    }, 300000); // كل 5 دقائق
+                }
             }
         } else {
             console.error('❌ خطأ: البوت غير مهيأ بعد، لا يمكن إعداد webhook');
