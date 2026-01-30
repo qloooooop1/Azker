@@ -67,7 +67,9 @@ WEBHOOK_SECRET=your-secret-token  # Optional, auto-generated if not set
 - Added `/webhook` endpoint with security validation
 - Added `/health` endpoint for monitoring
 - Enhanced error messages with helpful hints
-- Improved graceful shutdown to handle both polling and webhook modes
+- **Improved graceful shutdown with `drop_pending_updates: true`** for both polling and webhook modes
+- **Added webhook deletion with `drop_pending_updates: true` before starting polling** (critical for Render's zero-downtime deployments)
+- **Added webhook cleanup in uncaughtException handler with `drop_pending_updates: true`**
 
 ### env.example
 - Added `USE_WEBHOOK` configuration flag
@@ -168,6 +170,7 @@ Response:
 4. **Secure**: Secret token validation and proper error handling
 5. **Well-Documented**: Comprehensive guides for setup and troubleshooting
 6. **Backward Compatible**: Polling mode still works with added protection
+7. **Render Zero-Downtime Deployment Support**: `drop_pending_updates: true` ensures clean handoffs during deployments
 
 ## Migration Guide
 
