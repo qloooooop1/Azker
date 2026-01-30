@@ -15,3 +15,5 @@ yarn-error.log*
 # Local data directory - stored in /data volume on Render
 data/
 uploads/
+# Test files
+test-*.js
