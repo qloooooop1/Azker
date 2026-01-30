@@ -272,19 +272,25 @@ function continueInitialization() {
             if (!success && !webhookSetupCompleted) {
                 webhookSetupCompleted = true;
                 console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
-                startPollingMode();
+                startPollingMode().catch(err => {
+                    console.error('❌ خطأ في بدء polling:', err.message);
+                });
             }
         }).catch(err => {
             if (!webhookSetupCompleted) {
                 webhookSetupCompleted = true;
                 console.error('❌ خطأ في setupWebhook:', err.message);
                 console.log('⚠️ التراجع إلى polling...');
-                startPollingMode();
+                startPollingMode().catch(err => {
+                    console.error('❌ خطأ في بدء polling:', err.message);
+                });
             }
         });
     } else {
         // Polling mode
-        startPollingMode();
+        startPollingMode().catch(err => {
+            console.error('❌ خطأ في بدء polling:', err.message);
+        });
     }
 }
 

@@ -36,10 +36,10 @@ This bot implements **three layers of protection** against 409 Conflicts:
 - **Critical for zero-downtime deployments**
 - When the old instance shuts down:
   - Stops polling immediately
-  - Calls `deleteWebhook({ drop_pending_updates: true })`
+  - Calls `deleteWebHook({ drop_pending_updates: true })`
   - Clears the update queue so the new instance starts fresh
 - When the new instance starts:
-  - Calls `deleteWebhook({ drop_pending_updates: true })` before polling
+  - Calls `deleteWebHook({ drop_pending_updates: true })` before polling
   - Ensures no leftover webhooks from previous deployments
   - Prevents conflicts during the deployment overlap window
 
