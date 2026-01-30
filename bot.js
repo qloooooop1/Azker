@@ -1,3 +1,51 @@
+/*
+ * ⚠️ تحذير: هذا الملف قديم وغير مستخدم
+ * ===================================
+ * 
+ * هذا الملف هو نسخة قديمة من البوت ولا يُستخدم حالياً.
+ * الملف الرئيسي الذي يتم استخدامه هو: server.js
+ * 
+ * ⚠️ WARNING: This file is deprecated and not used
+ * ===============================================
+ * 
+ * This is an old version of the bot and is not currently in use.
+ * The main file that is being used is: server.js
+ * 
+ * للتشغيل الصحيح للبوت، استخدم:
+ * To run the bot correctly, use:
+ * 
+ *   npm start
+ *   أو / or
+ *   node server.js
+ * 
+ * لا تستخدم هذا الملف! / Do not use this file!
+ * 
+ */
+
+// عرض رسالة تحذير إذا تم تشغيل هذا الملف عن طريق الخطأ
+// Display warning if this file is run by mistake
+console.log('\n' + '='.repeat(60));
+console.log('⚠️  تحذير: هذا الملف (bot.js) قديم وغير مستخدم');
+console.log('⚠️  WARNING: This file (bot.js) is deprecated and not used');
+console.log('='.repeat(60));
+console.log('\n✅ الملف الصحيح هو: server.js');
+console.log('✅ The correct file is: server.js');
+console.log('\n📝 استخدم الأمر التالي لتشغيل البوت:');
+console.log('📝 Use the following command to run the bot:');
+console.log('\n   npm start');
+console.log('   أو / or');
+console.log('   node server.js\n');
+console.log('='.repeat(60) + '\n');
+
+// إنهاء العملية لمنع التشغيل الخاطئ
+// Exit to prevent incorrect execution
+process.exit(0);
+
+// =============================================================================
+// الكود القديم أدناه - لا يتم تنفيذه
+// Old code below - not executed
+// =============================================================================
+
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const sqlite3 = require('sqlite3').verbose();
