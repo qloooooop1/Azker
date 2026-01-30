@@ -3227,31 +3227,41 @@ app.listen(PORT, async () => {
     console.log(`👑 لوحة التحكم: http://localhost:${PORT}/admin`);
     
     // Setup webhook after server is listening (only in webhook mode)
-    if (USE_WEBHOOK && bot) {
-        console.log('🌐 الخادم جاهز، بدء إعداد webhook...');
-        const webhookSuccess = await setupWebhook();
-        if (!webhookSuccess) {
-            console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
-            await startPollingMode().catch(err => {
-                console.error('❌ خطأ في بدء polling:', err.message);
-            });
+    if (USE_WEBHOOK) {
+        if (bot) {
+            console.log('🌐 الخادم جاهز، بدء إعداد webhook...');
+            const webhookSuccess = await setupWebhook();
+            if (!webhookSuccess) {
+                console.log('⚠️ فشل إعداد webhook، التراجع إلى polling...');
+                await startPollingMode().catch(err => {
+                    console.error('❌ خطأ في بدء polling:', err.message);
+                });
+            }
+        } else {
+            console.error('❌ خطأ: البوت غير مهيأ بعد، لا يمكن إعداد webhook');
+            console.log('ℹ️ تأكد من أن TELEGRAM_BOT_TOKEN صحيح في ملف .env');
         }
     }
     
-    try {
-        const me = await bot.getMe();
-        console.log(`🤖 البوت: @${me.username}`);
-        console.log(`✅ النظام جاهز للاستخدام!`);
-        
-        // عرض الإحصائيات الأولية
-        db.get("SELECT COUNT(*) as categories FROM categories", (err, cats) => {
-            db.get("SELECT COUNT(*) as adkar FROM adkar", (err, adkar) => {
-                db.get("SELECT COUNT(*) as groups FROM groups", (err, groups) => {
-                    console.log(`📊 ${cats.categories} قسم، ${adkar.adkar} ذكر، ${groups.groups} مجموعة`);
+    // Display bot info and stats only if bot is initialized
+    if (bot) {
+        try {
+            const me = await bot.getMe();
+            console.log(`🤖 البوت: @${me.username}`);
+            console.log(`✅ النظام جاهز للاستخدام!`);
+            
+            // عرض الإحصائيات الأولية
+            db.get("SELECT COUNT(*) as categories FROM categories", (err, cats) => {
+                db.get("SELECT COUNT(*) as adkar FROM adkar", (err, adkar) => {
+                    db.get("SELECT COUNT(*) as groups FROM groups", (err, groups) => {
+                        console.log(`📊 ${cats.categories} قسم، ${adkar.adkar} ذكر، ${groups.groups} مجموعة`);
+                    });
                 });
             });
-        });
-    } catch (error) {
-        console.error('❌ خطأ في الاتصال بتلجرام:', error.message);
+        } catch (error) {
+            console.error('❌ خطأ في الاتصال بتلجرام:', error.message);
+        }
+    } else {
+        console.error('❌ البوت غير مهيأ - تحقق من سجلات التهيئة أعلاه');
     }
 });
