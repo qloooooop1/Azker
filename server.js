@@ -1013,9 +1013,14 @@ async function sendScheduledAzkar(adkarId) {
         }
         
         console.log(`📤 نشر الذكر "${adkar.title}" إلى ${groups.length} مجموعة:`);
-        groups.forEach(group => {
+        // Log first 10 groups to avoid excessive output
+        const displayLimit = Math.min(10, groups.length);
+        groups.slice(0, displayLimit).forEach(group => {
             console.log(`   - ${group.title || 'بدون اسم'} (${group.chat_id})`);
         });
+        if (groups.length > displayLimit) {
+            console.log(`   ... و ${groups.length - displayLimit} مجموعة أخرى`);
+        }
         
         // إرسال لكل مجموعة
         let successCount = 0;
@@ -1107,9 +1112,14 @@ function loadAndScheduleAllAzkar() {
             
             console.log(`📋 تم العثور على ${adkarList.length} ذكر نشط`);
             console.log('📋 قائمة الأذكار المراد جدولتها:');
-            adkarList.forEach(adkar => {
+            // Log first 10 adkar to avoid excessive output
+            const displayLimit = Math.min(10, adkarList.length);
+            adkarList.slice(0, displayLimit).forEach(adkar => {
                 console.log(`   - ID: ${adkar.id}, العنوان: "${adkar.title}", الوقت: ${adkar.schedule_time}`);
             });
+            if (adkarList.length > displayLimit) {
+                console.log(`   ... و ${adkarList.length - displayLimit} أذكار أخرى`);
+            }
             
             // جدولة كل ذكر
             adkarList.forEach(adkar => {
@@ -1156,9 +1166,9 @@ function registerBotHandlers() {
     
     // معالجة إضافة البوت للمجموعة (auto-activation)
     bot.on('my_chat_member', async (update) => {
-    console.log('🔔 تم استدعاء my_chat_member event handler');
-    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
-    try {
+        console.log('🔔 تم استدعاء my_chat_member event handler');
+        console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
+        try {
         const chatId = update.chat.id;
         const chatType = update.chat.type;
         const newStatus = update.new_chat_member.status;
