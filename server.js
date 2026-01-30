@@ -489,18 +489,34 @@ async function verifyDatabaseIntegrity() {
                         console.log('ℹ️ لا توجد مجموعات نشطة حالياً');
                     }
                     
-                    // التحقق من الأذكار
-                    db.get("SELECT COUNT(*) as count FROM adkar WHERE is_active = 1", (err, adkarRow) => {
-                        if (err) {
-                            console.error('❌ خطأ في فحص جدول الأذكار:', err);
-                        } else {
-                            const adkarCount = adkarRow ? adkarRow.count : 0;
-                            console.log(`📖 عدد الأذكار النشطة: ${adkarCount}`);
-                        }
-                        
-                        console.log('✅ اكتمل فحص قاعدة البيانات');
-                        resolve();
-                    });
+                    // عرض المجموعات غير النشطة
+                    db.all("SELECT chat_id, title, created_at FROM groups WHERE bot_enabled = 0", 
+                        (err, inactiveGroups) => {
+                            if (err) {
+                                console.error('❌ خطأ في جلب المجموعات غير النشطة:', err);
+                            } else if (inactiveGroups && inactiveGroups.length > 0) {
+                                console.log(`⏸️ المجموعات غير النشطة (${inactiveGroups.length}):`);
+                                inactiveGroups.forEach(group => {
+                                    console.log(`   - ${group.title || 'بدون اسم'} (${group.chat_id})`);
+                                    console.log(`     تاريخ الإضافة: ${group.created_at}`);
+                                    console.log(`     ℹ️ هذه المجموعة غير مفعلة. استخدم /start في المجموعة لتفعيلها`);
+                                });
+                            }
+                            
+                            // التحقق من الأذكار
+                            db.get("SELECT COUNT(*) as count FROM adkar WHERE is_active = 1", (err, adkarRow) => {
+                                if (err) {
+                                    console.error('❌ خطأ في فحص جدول الأذكار:', err);
+                                } else {
+                                    const adkarCount = adkarRow ? adkarRow.count : 0;
+                                    console.log(`📖 عدد الأذكار النشطة: ${adkarCount}`);
+                                }
+                                
+                                console.log('✅ اكتمل فحص قاعدة البيانات');
+                                console.log('='.repeat(50));
+                                resolve();
+                            });
+                        });
                 });
         });
     });
@@ -873,6 +889,28 @@ bot.on('my_chat_member', async (update) => {
                         }
                     })();
                 });
+        }
+        
+        // معالجة إزالة البوت من المجموعة (لا نحذف المجموعة، فقط نعطل البوت)
+        if ((chatType === 'group' || chatType === 'supergroup') && 
+            (newStatus === 'left' || newStatus === 'kicked')) {
+            
+            const title = update.chat.title;
+            
+            console.log(`🚫 تمت إزالة البوت من المجموعة`);
+            console.log(`   📛 اسم المجموعة: ${title}`);
+            console.log(`   🆔 معرّف المجموعة: ${chatId}`);
+            console.log(`   📅 التاريخ والوقت: ${new Date().toLocaleString('ar-SA')}`);
+            
+            // تعطيل البوت في المجموعة (لكن لا نحذف المجموعة للاحتفاظ بالسجل)
+            db.run(`UPDATE groups SET bot_enabled = 0 WHERE chat_id = ?`, [chatId], (err) => {
+                if (err) {
+                    console.error(`❌ خطأ في تعطيل البوت للمجموعة: ${err.message}`);
+                } else {
+                    console.log(`✅ تم تعطيل البوت في المجموعة: ${title} (${chatId})`);
+                    console.log(`ℹ️ المجموعة محفوظة في قاعدة البيانات للسجل التاريخي`);
+                }
+            });
         }
     } catch (error) {
         console.error('❌ خطأ في معالجة my_chat_member:', error);
