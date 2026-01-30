@@ -55,6 +55,8 @@ function cleanupOldBot() {
             console.log('⚠️ خطأ في إزالة listeners:', err.message);
         }
     }
+    // تنظيف المرجع
+    pollingErrorHandler = null;
 }
 
 function initializeBot() {
@@ -64,39 +66,44 @@ function initializeBot() {
         return;
     }
     
-    initializationInProgress = true;
-    console.log('🔧 بدء تهيئة البوت...');
-    
-    // إلغاء أي timeout موجود
-    if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-        reconnectTimeout = null;
-    }
-    
-    // إيقاف أي polling سابق
-    if (bot && isPolling) {
-        try {
-            console.log('🛑 إيقاف polling السابق...');
-            bot.stopPolling();
-            isPolling = false;
-            // انتظار قصير للتأكد من إيقاف polling
-            setTimeout(() => continueInitialization(), 1000);
-            return;
-        } catch (err) {
-            console.log('⚠️ لم يكن هناك polling نشط');
+    try {
+        initializationInProgress = true;
+        console.log('🔧 بدء تهيئة البوت...');
+        
+        // إلغاء أي timeout موجود
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
         }
+        
+        // إيقاف أي polling سابق
+        if (bot && isPolling) {
+            try {
+                console.log('🛑 إيقاف polling السابق...');
+                bot.stopPolling();
+                isPolling = false;
+                // انتظار قصير للتأكد من إيقاف polling
+                setTimeout(() => continueInitialization(), 1000);
+                return;
+            } catch (err) {
+                console.log('⚠️ لم يكن هناك polling نشط');
+            }
+        }
+        
+        // تنظيف البوت القديم
+        cleanupOldBot();
+        
+        // إزالة مرجع البوت القديم إذا كان موجوداً
+        if (bot) {
+            console.log('🧹 إزالة مرجع البوت القديم...');
+            bot = null;
+        }
+        
+        continueInitialization();
+    } catch (error) {
+        console.error('❌ خطأ في initializeBot:', error);
+        initializationInProgress = false; // التأكد من إعادة تعيين الحالة
     }
-    
-    // تنظيف البوت القديم
-    cleanupOldBot();
-    
-    // إزالة مرجع البوت القديم إذا كان موجوداً
-    if (bot) {
-        console.log('🧹 إزالة مرجع البوت القديم...');
-        bot = null;
-    }
-    
-    continueInitialization();
 }
 
 function continueInitialization() {
@@ -229,6 +236,7 @@ async function gracefulShutdown(signal) {
     // إلغاء جميع الجداول المجدولة
     if (scheduledJobs && scheduledJobs.size > 0) {
         console.log(`📅 إلغاء ${scheduledJobs.size} مهمة مجدولة...`);
+        const cancelPromises = [];
         scheduledJobs.forEach((job, key) => {
             try {
                 job.cancel();
@@ -241,33 +249,46 @@ async function gracefulShutdown(signal) {
         console.log('✅ تم إلغاء جميع المهام المجدولة');
     }
     
-    // إغلاق قاعدة البيانات
+    // إغلاق قاعدة البيانات باستخدام Promise
     if (db) {
         console.log('🗄️ إغلاق قاعدة البيانات...');
-        db.close((err) => {
-            if (err) {
-                console.error('❌ خطأ في إغلاق قاعدة البيانات:', err.message);
-                process.exit(1);
-            } else {
-                console.log('✅ تم إغلاق قاعدة البيانات بنجاح');
-                console.log('👋 إنهاء البرنامج...');
-                process.exit(0);
-            }
+        await new Promise((resolve) => {
+            db.close((err) => {
+                if (err) {
+                    console.error('❌ خطأ في إغلاق قاعدة البيانات:', err.message);
+                } else {
+                    console.log('✅ تم إغلاق قاعدة البيانات بنجاح');
+                }
+                resolve(); // نكمل في كل الحالات
+            });
         });
-    } else {
-        console.log('👋 إنهاء البرنامج...');
-        process.exit(0);
     }
+    
+    console.log('👋 إنهاء البرنامج...');
+    process.exit(0);
 }
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-// معالجة الأخطاء غير المتوقعة
+// معالجة الأخطاء غير المتوقعة - نستخدم نسخة متزامنة للأمان
 process.on('uncaughtException', (err) => {
     console.error('❌ خطأ غير متوقع (uncaughtException):', err);
     console.error('📋 Stack trace:', err.stack);
-    gracefulShutdown('uncaughtException');
+    
+    // محاولة تنظيف سريع ومتزامن
+    try {
+        if (bot && isPolling) {
+            bot.stopPolling();
+        }
+        if (db) {
+            db.close(() => {});
+        }
+    } catch (e) {
+        console.error('خطأ في التنظيف:', e.message);
+    }
+    
+    process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -646,21 +667,41 @@ async function sendAdkarToGroup(chatId, adkar) {
             }
         }
 
-        // تحديث وقت آخر إرسال
-        db.run("UPDATE adkar SET last_sent = datetime('now') WHERE id = ?", [adkar.id]);
+        // تحديث وقت آخر إرسال وتسجيل النجاح باستخدام Promise
+        await new Promise((resolve, reject) => {
+            db.run("UPDATE adkar SET last_sent = datetime('now') WHERE id = ?", [adkar.id], (err) => {
+                if (err) {
+                    console.error('⚠️ خطأ في تحديث وقت الإرسال:', err.message);
+                }
+                resolve(); // نستمر حتى لو فشل التحديث
+            });
+        });
         
-        // تسجيل النجاح
-        db.run("INSERT INTO sent_logs (adkar_id, chat_id, status) VALUES (?, ?, ?)", 
-            [adkar.id, chatId, 'success']);
+        await new Promise((resolve, reject) => {
+            db.run("INSERT INTO sent_logs (adkar_id, chat_id, status) VALUES (?, ?, ?)", 
+                [adkar.id, chatId, 'success'], (err) => {
+                    if (err) {
+                        console.error('⚠️ خطأ في تسجيل النجاح:', err.message);
+                    }
+                    resolve(); // نستمر حتى لو فشل التسجيل
+                });
+        });
         
         console.log(`✅ تم نشر "${adkar.title}" في ${chatId}`);
 
     } catch (error) {
         console.error(`❌ خطأ في الإرسال لـ ${chatId}:`, error.message);
         
-        // تسجيل الفشل
-        db.run("INSERT INTO sent_logs (adkar_id, chat_id, status, error) VALUES (?, ?, ?, ?)", 
-            [adkar.id, chatId, 'failed', error.message]);
+        // تسجيل الفشل باستخدام Promise
+        await new Promise((resolve) => {
+            db.run("INSERT INTO sent_logs (adkar_id, chat_id, status, error) VALUES (?, ?, ?, ?)", 
+                [adkar.id, chatId, 'failed', error.message], (err) => {
+                    if (err) {
+                        console.error('⚠️ خطأ في تسجيل الفشل:', err.message);
+                    }
+                    resolve(); // نستمر في كل الحالات
+                });
+        });
     }
 }
 
