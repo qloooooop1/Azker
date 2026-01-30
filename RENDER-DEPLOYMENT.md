@@ -45,14 +45,14 @@ This bot implements **three layers of protection** against 409 Conflicts:
 
 ## Recommended Configuration for Render
 
-### Option 1: Webhook Mode (Best for Production)
+### Default Configuration: Webhook Mode (Recommended)
 
-This is the **recommended approach** for Render deployments.
+This is the **default and recommended approach** for all Render deployments.
 
-**1. Configure your `.env` file:**
+**1. Configure your `.env` or Render environment variables:**
 
 ```bash
-# Enable webhook mode
+# Webhook mode is now the default
 USE_WEBHOOK=true
 
 # Use your Render service URL
@@ -64,7 +64,7 @@ WEBHOOK_SECRET=your-random-secret-token-here
 
 **2. Deploy to Render:**
 
-Your `render.yaml` can remain as a **Web Service**:
+Your `render.yaml` is already configured for webhook mode:
 
 ```yaml
 services:
@@ -79,7 +79,7 @@ services:
       - key: USE_WEBHOOK
         value: true
       - key: WEBHOOK_URL
-        value: https://your-app-name.onrender.com
+        sync: false
       - key: NODE_ENV
         value: production
 ```
@@ -89,12 +89,13 @@ services:
 - ✅ Works perfectly with zero-downtime deployments
 - ✅ More efficient - no continuous polling
 - ✅ Lower latency - instant message delivery
+- ✅ **This is now the default mode**
 
-### Option 2: Polling Mode with Protection
+### Alternative: Polling Mode (For Local Development Only)
 
-If you must use polling mode:
+If you must use polling mode (e.g., for local development):
 
-**1. Keep webhook disabled in `.env`:**
+**1. Override webhook mode in `.env`:**
 
 ```bash
 USE_WEBHOOK=false
@@ -107,42 +108,24 @@ USE_WEBHOOK=false
 - Handles Render's deployment overlap gracefully
 
 **Limitations:**
+- Not recommended for production
 - Small window during deployment where both instances might exist
 - The bot handles this by:
   - Old instance: Shuts down cleanly with `drop_pending_updates`
   - New instance: Clears webhooks before starting polling
   - Update queue is cleared to prevent conflicts
 
-## Service Type: Web Service vs Background Worker
+**Note**: For production deployments on Render, always use webhook mode (the default).
 
-### For Webhook Mode
+## Service Type: Web Service (Required for Webhooks)
+
 ✅ **Use: Web Service** (already configured in `render.yaml`)
+- **Required for webhook mode** (the default)
 - Webhook mode requires HTTP endpoints
 - Web Service is perfect for this
-- No changes needed
+- No changes needed to `render.yaml`
 
-### For Polling Mode
-You have two options:
-
-**Option A: Keep as Web Service** (Current Configuration)
-- ✅ Works fine with the protection mechanisms
-- ✅ Provides health check endpoint
-- ⚠️ Small deployment overlap window (handled by the bot)
-
-**Option B: Switch to Background Worker** (Paid Plans Only)
-- Update `render.yaml`:
-  ```yaml
-  services:
-    - type: worker  # Changed from 'web'
-      name: adkar-bot
-      # ... rest of config
-  ```
-- ✅ No HTTP endpoint overhead
-- ✅ Better suited for long-running processes
-- ❌ Requires paid plan on Render
-- ❌ No health check endpoint available
-
-**Recommendation:** Stick with **Web Service** and enable **Webhook Mode**.
+**Note**: The default configuration uses webhook mode with Web Service type, which is the optimal setup for Render deployments.
 
 ## Troubleshooting
 
@@ -179,13 +162,14 @@ You have two options:
 
 ## Migration from Polling to Webhook
 
-If you're currently using polling mode and want to switch:
+If you're currently using polling mode and want to switch to webhook (the new default):
 
-1. **Update `.env` in Render dashboard:**
-   - Add: `USE_WEBHOOK=true`
-   - Add: `WEBHOOK_URL=https://your-app-name.onrender.com`
+1. **Update environment variables in Render dashboard:**
+   - Set: `USE_WEBHOOK=true`
+   - Set: `WEBHOOK_URL=https://your-app-name.onrender.com`
+   - Optional: Set `WEBHOOK_SECRET` for additional security
 
-2. **Restart the service**
+2. **Redeploy the service** (or it will auto-deploy if configured)
 
 3. **Verify webhook is set:**
    ```bash
@@ -226,12 +210,12 @@ Response:
 
 ## Summary
 
-For **Render.com deployments**, we recommend:
+For **Render.com deployments**, the default configuration is:
 
 | Configuration | Value | Reason |
 |--------------|-------|---------|
-| Service Type | Web Service | Required for webhooks, works for both modes |
-| Bot Mode | Webhook (`USE_WEBHOOK=true`) | Eliminates 409 Conflicts completely |
+| Service Type | Web Service | Required for webhooks |
+| Bot Mode | Webhook (`USE_WEBHOOK=true`) | Default - eliminates 409 Conflicts completely |
 | WEBHOOK_URL | Your Render URL | Required for webhook mode |
 | Plan | Free or Paid | Free plan works perfectly with webhook mode |
 
@@ -240,3 +224,4 @@ This configuration provides:
 - ✅ Perfect compatibility with zero-downtime deployments
 - ✅ Optimal performance and reliability
 - ✅ Works on Render's free plan
+- ✅ **This is now the default setup**

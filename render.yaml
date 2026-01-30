@@ -9,7 +9,15 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
-    healthCheckPath: /
+      - key: USE_WEBHOOK
+        value: true
+      - key: WEBHOOK_URL
+        sync: false
+      - key: WEBHOOK_PATH
+        value: /webhook
+      - key: WEBHOOK_SECRET
+        sync: false
+    healthCheckPath: /health
     autoDeploy: true
     disk:
       name: adkar-data
