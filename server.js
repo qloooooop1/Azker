@@ -714,6 +714,7 @@ db.serialize(() => {
         admin_id TEXT,
         bot_enabled INTEGER DEFAULT 1,
         is_active INTEGER DEFAULT 1,
+        is_protected INTEGER DEFAULT 1,
         settings TEXT DEFAULT '{}',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
@@ -728,6 +729,21 @@ db.serialize(() => {
         sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (adkar_id) REFERENCES adkar(id)
     )`);
+
+    // إضافة عمود is_protected للمجموعات الموجودة (Migration)
+    db.run(`ALTER TABLE groups ADD COLUMN is_protected INTEGER DEFAULT 1`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+            console.log('ℹ️ عمود is_protected موجود بالفعل أو تم إضافته');
+        } else if (!err) {
+            console.log('✅ تم إضافة عمود is_protected للمجموعات');
+            // تحديث جميع المجموعات الموجودة لتكون محمية
+            db.run(`UPDATE groups SET is_protected = 1 WHERE is_protected IS NULL`, (updateErr) => {
+                if (!updateErr) {
+                    console.log('✅ تم تحديث المجموعات الموجودة لتكون محمية');
+                }
+            });
+        }
+    });
 
     // إضافة أقسام افتراضية
     const defaultCategories = [
@@ -1348,13 +1364,14 @@ function registerBotHandlers() {
             console.log(`   👤 المستخدم الذي أضاف البوت: ${update.from.first_name} (${adminId})`);
             console.log(`   📅 التاريخ والوقت: ${new Date().toLocaleString('ar-SA')}`);
             
-            // حفظ وتفعيل المجموعة في قاعدة البيانات فوراً
-            db.run(`INSERT INTO groups (chat_id, title, admin_id, bot_enabled, is_active) VALUES (?, ?, ?, ?, ?) 
+            // حفظ وتفعيل المجموعة في قاعدة البيانات فوراً مع الحماية
+            db.run(`INSERT INTO groups (chat_id, title, admin_id, bot_enabled, is_active, is_protected) VALUES (?, ?, ?, ?, ?, ?) 
                     ON CONFLICT(chat_id) DO UPDATE SET 
                         title = excluded.title, 
                         bot_enabled = excluded.bot_enabled,
-                        is_active = excluded.is_active`, 
-                [chatId, title, adminId, 1, 1], function(err) {
+                        is_active = excluded.is_active,
+                        is_protected = excluded.is_protected`, 
+                [chatId, title, adminId, 1, 1, 1], function(err) {
                     if (err) {
                         console.error(`❌ خطأ في حفظ المجموعة في قاعدة البيانات: ${err.message}`);
                         console.error(`   المجموعة: ${title} (${chatId})`);
@@ -1368,6 +1385,7 @@ function registerBotHandlers() {
                     console.log(`   👤 معرّف المشرف: ${adminId}`);
                     console.log(`   📊 حالة البوت: مفعّل ✓`);
                     console.log(`   📊 المجموعة نشطة: نعم ✓`);
+                    console.log(`   🔒 المجموعة محمية من الحذف: نعم ✓`);
                     console.log(`   🔢 عدد الصفوف المتأثرة: ${this.changes}`);
                     console.log(`   ⏰ وقت التسجيل: ${new Date().toLocaleString('ar-SA')}`);
                     
@@ -1460,13 +1478,14 @@ bot.onText(/\/start/, async (msg) => {
                 return;
             }
             
-            // حفظ المجموعة وتفعيل البوت وتحديث is_active
-            db.run(`INSERT INTO groups (chat_id, title, admin_id, bot_enabled, is_active) VALUES (?, ?, ?, ?, ?) 
+            // حفظ المجموعة وتفعيل البوت وتحديث is_active مع الحماية
+            db.run(`INSERT INTO groups (chat_id, title, admin_id, bot_enabled, is_active, is_protected) VALUES (?, ?, ?, ?, ?, ?) 
                     ON CONFLICT(chat_id) DO UPDATE SET 
                         title = excluded.title, 
                         bot_enabled = 1, 
-                        is_active = 1`, 
-                [chatId, title, adminId, 1, 1], async function(err) {
+                        is_active = 1,
+                        is_protected = 1`, 
+                [chatId, title, adminId, 1, 1, 1], async function(err) {
                     if (err) {
                         console.error('❌ خطأ في حفظ المجموعة أثناء تفعيل البوت:', err);
                         console.error(`   المجموعة: ${title} (${chatId})`);
@@ -1479,6 +1498,7 @@ bot.onText(/\/start/, async (msg) => {
                     console.log(`   📛 اسم المجموعة: ${title}`);
                     console.log(`   🆔 معرّف المجموعة: ${chatId}`);
                     console.log(`   👤 معرّف المشرف: ${adminId}`);
+                    console.log(`   🔒 المجموعة محمية من الحذف: نعم ✓`);
                     console.log(`   🔢 عدد الصفوف المتأثرة: ${this.changes}`);
                     console.log(`   ⏰ وقت التسجيل: ${new Date().toLocaleString('ar-SA')}`);
                     
