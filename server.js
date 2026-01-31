@@ -1157,8 +1157,17 @@ function scheduleAdkar(adkar) {
                 // جدولة أسبوعية - تحديد أيام الأسبوع
                 const days = parseJSONArray(adkar.schedule_days);
                 if (days && days.length > 0) {
-                    rule.dayOfWeek = days; // 0=الأحد, 1=الإثنين, ..., 6=السبت
-                    console.log(`📅 جدولة أسبوعية - الأيام: ${days.join(', ')}`);
+                    // التحقق من صحة أيام الأسبوع (0-6)
+                    const validDays = days.filter(day => day >= 0 && day <= 6);
+                    if (validDays.length > 0) {
+                        rule.dayOfWeek = validDays; // 0=الأحد, 1=الإثنين, ..., 6=السبت
+                        console.log(`📅 جدولة أسبوعية - الأيام: ${validDays.join(', ')}`);
+                        if (validDays.length < days.length) {
+                            console.log(`⚠️ تم تجاهل ${days.length - validDays.length} يوم غير صالح`);
+                        }
+                    } else {
+                        console.log(`⚠️ لا توجد أيام صالحة (0-6)، سيتم استخدام جدولة يومية`);
+                    }
                 } else {
                     // إذا لم تُحدد أيام، استخدم جدولة يومية
                     console.log(`⚠️ لا توجد أيام محددة للجدولة الأسبوعية، سيتم استخدام جدولة يومية`);
@@ -1169,8 +1178,17 @@ function scheduleAdkar(adkar) {
                 // جدولة شهرية - تحديد أيام الشهر
                 const dates = parseJSONArray(adkar.schedule_dates);
                 if (dates && dates.length > 0) {
-                    rule.date = dates; // أيام الشهر [1, 15, 30]
-                    console.log(`📅 جدولة شهرية - التواريخ: ${dates.join(', ')}`);
+                    // التحقق من صحة أيام الشهر (1-31)
+                    const validDates = dates.filter(date => date >= 1 && date <= 31);
+                    if (validDates.length > 0) {
+                        rule.date = validDates; // أيام الشهر [1, 15, 30]
+                        console.log(`📅 جدولة شهرية - التواريخ: ${validDates.join(', ')}`);
+                        if (validDates.length < dates.length) {
+                            console.log(`⚠️ تم تجاهل ${dates.length - validDates.length} تاريخ غير صالح`);
+                        }
+                    } else {
+                        console.log(`⚠️ لا توجد تواريخ صالحة (1-31)، سيتم استخدام جدولة يومية`);
+                    }
                 } else {
                     console.log(`⚠️ لا توجد تواريخ محددة للجدولة الشهرية، سيتم استخدام جدولة يومية`);
                 }
@@ -1180,10 +1198,19 @@ function scheduleAdkar(adkar) {
                 // جدولة سنوية - تحديد الأشهر
                 const months = parseJSONArray(adkar.schedule_months);
                 if (months && months.length > 0) {
-                    // في node-schedule، الأشهر من 0-11 (يناير=0)
-                    // لكن في قاعدة البيانات نخزنها من 1-12
-                    rule.month = months.map(m => m - 1); // تحويل من 1-12 إلى 0-11
-                    console.log(`📅 جدولة سنوية - الأشهر: ${months.join(', ')}`);
+                    // التحقق من صحة الأشهر (1-12)
+                    const validMonths = months.filter(month => month >= 1 && month <= 12);
+                    if (validMonths.length > 0) {
+                        // في node-schedule، الأشهر من 0-11 (يناير=0)
+                        // لكن في قاعدة البيانات نخزنها من 1-12
+                        rule.month = validMonths.map(m => m - 1); // تحويل من 1-12 إلى 0-11
+                        console.log(`📅 جدولة سنوية - الأشهر: ${validMonths.join(', ')}`);
+                        if (validMonths.length < months.length) {
+                            console.log(`⚠️ تم تجاهل ${months.length - validMonths.length} شهر غير صالح`);
+                        }
+                    } else {
+                        console.log(`⚠️ لا توجد أشهر صالحة (1-12)، سيتم استخدام جدولة يومية`);
+                    }
                 } else {
                     console.log(`⚠️ لا توجد أشهر محددة للجدولة السنوية، سيتم استخدام جدولة يومية`);
                 }
