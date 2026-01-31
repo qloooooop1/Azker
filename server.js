@@ -1430,6 +1430,53 @@ function registerBotHandlers() {
                 });
         }
         
+        // معالجة ترقية البوت إلى مشرف في مجموعة موجودة
+        if ((chatType === 'group' || chatType === 'supergroup') && 
+            oldStatus === 'member' && newStatus === 'administrator') {
+            
+            const title = update.chat.title;
+            const adminId = update.from.id;
+            
+            console.log(`👑 تمت ترقية البوت إلى مشرف في المجموعة!`);
+            console.log(`   📛 اسم المجموعة: ${title}`);
+            console.log(`   🆔 معرّف المجموعة: ${chatId}`);
+            console.log(`   👤 المستخدم الذي قام بالترقية: ${update.from.first_name} (${adminId})`);
+            console.log(`   📅 التاريخ والوقت: ${new Date().toLocaleString('ar-SA')}`);
+            
+            // تفعيل البوت تلقائياً عند منحه صلاحيات المشرف
+            db.run(`UPDATE groups SET bot_enabled = 1, is_active = 1 WHERE chat_id = ?`, [chatId], async (err) => {
+                if (err) {
+                    console.error(`❌ خطأ في تفعيل البوت: ${err.message}`);
+                    return;
+                }
+                
+                console.log(`✅ تم تفعيل البوت تلقائياً بعد منح صلاحيات المشرف`);
+                console.log(`   📛 اسم المجموعة: ${title}`);
+                console.log(`   🆔 معرّف المجموعة: ${chatId}`);
+                
+                // إرسال رسالة تأكيد التفعيل
+                try {
+                    const escapedTitle = escapeMarkdown(title);
+                    const activationMsg = `✅ *تم التفعيل*\n\n` +
+                        `🎉 تم منح البوت صلاحيات المشرف في المجموعة *${escapedTitle}*\n\n` +
+                        `✨ البوت الآن نشط ومفعّل تلقائياً!\n\n` +
+                        `📿 سأبدأ بنشر الأذكار اليومية حسب الجدولة المحددة.\n\n` +
+                        `*الأوامر المتاحة:*\n` +
+                        `/start - عرض معلومات البوت\n` +
+                        `/status - عرض حالة البوت\n` +
+                        `/enable - تفعيل البوت\n` +
+                        `/disable - إيقاف البوت مؤقتاً\n` +
+                        `/help - عرض المساعدة`;
+                    
+                    await bot.sendMessage(chatId, activationMsg, { parse_mode: 'Markdown' });
+                    console.log(`✅ تم إرسال رسالة تأكيد التفعيل للمجموعة: ${title} (${chatId})`);
+                    
+                } catch (error) {
+                    console.error(`❌ خطأ في إرسال رسالة التفعيل: ${error.message}`);
+                }
+            });
+        }
+        
         // معالجة إزالة البوت من المجموعة (لا نحذف المجموعة، فقط نعطل البوت)
         if ((chatType === 'group' || chatType === 'supergroup') && 
             (newStatus === 'left' || newStatus === 'kicked')) {
@@ -2186,6 +2233,178 @@ app.post('/api/test-send/:chatId/:adkarId', async (req, res) => {
     });
 });
 
+// ========== النسخ الاحتياطي والاستعادة ==========
+// ملاحظة: يُنصح بإضافة Rate Limiting وAuthentication لهذه النقاط في بيئة الإنتاج
+
+// إنشاء نسخة احتياطية كاملة
+app.get('/api/backup', (req, res) => {
+    console.log('💾 بدء إنشاء نسخة احتياطية...');
+    
+    const backup = {
+        timestamp: new Date().toISOString(),
+        version: '1.0',
+        data: {}
+    };
+    
+    // استخراج بيانات المجموعات
+    db.all("SELECT * FROM groups", (err, groups) => {
+        if (err) {
+            console.error('❌ خطأ في استخراج المجموعات:', err);
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        
+        backup.data.groups = groups;
+        
+        // استخراج بيانات الأذكار
+        db.all("SELECT * FROM adkar", (err, adkar) => {
+            if (err) {
+                console.error('❌ خطأ في استخراج الأذكار:', err);
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            
+            backup.data.adkar = adkar;
+            
+            // استخراج بيانات الفئات
+            db.all("SELECT * FROM categories", (err, categories) => {
+                if (err) {
+                    console.error('❌ خطأ في استخراج الفئات:', err);
+                }
+                
+                backup.data.categories = categories || [];
+                
+                // إرسال النسخة الاحتياطية
+                const filename = `azkar-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+                res.json(backup);
+                
+                console.log(`✅ تم إنشاء نسخة احتياطية بنجاح: ${filename}`);
+                console.log(`   📊 المجموعات: ${backup.data.groups.length}`);
+                console.log(`   📿 الأذكار: ${backup.data.adkar.length}`);
+                console.log(`   🏷️ الفئات: ${backup.data.categories.length}`);
+            });
+        });
+    });
+});
+
+// استعادة من نسخة احتياطية
+app.post('/api/restore', upload.single('backupFile'), (req, res) => {
+    console.log('🔄 بدء استعادة النسخة الاحتياطية...');
+    
+    if (!req.file) {
+        res.status(400).json({ error: 'لم يتم رفع ملف النسخة الاحتياطية' });
+        return;
+    }
+    
+    // التحقق من حجم الملف (حد أقصى 10MB)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (req.file.size > MAX_FILE_SIZE) {
+        res.status(400).json({ error: 'حجم الملف كبير جداً. الحد الأقصى هو 10MB' });
+        return;
+    }
+    
+    try {
+        // قراءة محتوى الملف
+        const backupData = JSON.parse(req.file.buffer.toString('utf8'));
+        
+        if (!backupData.data) {
+            res.status(400).json({ error: 'تنسيق النسخة الاحتياطية غير صحيح' });
+            return;
+        }
+        
+        let restored = {
+            groups: 0,
+            adkar: 0,
+            categories: 0
+        };
+        
+        db.serialize(() => {
+            // استعادة الفئات أولاً (إذا وجدت)
+            if (backupData.data.categories && backupData.data.categories.length > 0) {
+                const catStmt = db.prepare(`INSERT OR REPLACE INTO categories 
+                    (id, name, description, icon, color, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?)`);
+                
+                backupData.data.categories.forEach(cat => {
+                    catStmt.run([cat.id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
+                    restored.categories++;
+                });
+                catStmt.finalize();
+            }
+            
+            // استعادة الأذكار (بعد الفئات)
+            if (backupData.data.adkar && backupData.data.adkar.length > 0) {
+                const adkarStmt = db.prepare(`INSERT OR REPLACE INTO adkar 
+                    (id, title, content, category_id, type, file_path, file_url, 
+                     schedule_type, schedule_time, days_of_week, repeat_interval, 
+                     is_active, priority, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                
+                backupData.data.adkar.forEach(adkar => {
+                    adkarStmt.run([
+                        adkar.id, adkar.title, adkar.content, adkar.category_id,
+                        adkar.type, adkar.file_path, adkar.file_url,
+                        adkar.schedule_type, adkar.schedule_time, adkar.days_of_week,
+                        adkar.repeat_interval, adkar.is_active, adkar.priority,
+                        adkar.created_at
+                    ]);
+                    restored.adkar++;
+                });
+                adkarStmt.finalize();
+            }
+            
+            // استعادة المجموعات (آخراً)
+            if (backupData.data.groups && backupData.data.groups.length > 0) {
+                const groupStmt = db.prepare(`INSERT OR REPLACE INTO groups 
+                    (id, chat_id, title, admin_id, bot_enabled, is_active, 
+                     is_protected, settings, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                
+                backupData.data.groups.forEach(group => {
+                    groupStmt.run([
+                        group.id, group.chat_id, group.title, group.admin_id,
+                        group.bot_enabled, group.is_active, group.is_protected,
+                        group.settings, group.created_at
+                    ]);
+                    restored.groups++;
+                });
+                
+                // إرسال الاستجابة بعد اكتمال جميع العمليات
+                groupStmt.finalize(() => {
+                    res.json({ 
+                        success: true, 
+                        message: 'تم استعادة النسخة الاحتياطية بنجاح',
+                        restored: restored
+                    });
+                    
+                    console.log('✅ تم استعادة النسخة الاحتياطية بنجاح');
+                    console.log(`   📊 المجموعات: ${restored.groups}`);
+                    console.log(`   📿 الأذكار: ${restored.adkar}`);
+                    console.log(`   🏷️ الفئات: ${restored.categories}`);
+                });
+            } else {
+                // إذا لم تكن هناك مجموعات، أرسل الاستجابة الآن
+                res.json({ 
+                    success: true, 
+                    message: 'تم استعادة النسخة الاحتياطية بنجاح',
+                    restored: restored
+                });
+                
+                console.log('✅ تم استعادة النسخة الاحتياطية بنجاح');
+                console.log(`   📊 المجموعات: ${restored.groups}`);
+                console.log(`   📿 الأذكار: ${restored.adkar}`);
+                console.log(`   🏷️ الفئات: ${restored.categories}`);
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ خطأ في استعادة النسخة الاحتياطية:', error);
+        res.status(500).json({ error: 'خطأ في معالجة ملف النسخة الاحتياطية: ' + error.message });
+    }
+});
+
 // ========== لوحة التحكم المتكاملة ==========
 app.get('/admin', (req, res) => {
     res.send(`
@@ -2405,6 +2624,11 @@ app.get('/admin', (req, res) => {
                         <i class="bi bi-send me-2"></i>اختبار النشر
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" onclick="showSection('backup')">
+                        <i class="bi bi-database me-2"></i>النسخ الاحتياطي
+                    </a>
+                </li>
             </ul>
         </div>
 
@@ -2597,6 +2821,90 @@ app.get('/admin', (req, res) => {
                                 <li>سيتم إرسال الذكر فوراً للمجموعة</li>
                                 <li>يمكنك استخدام هذه الميزة لاختبار النشر</li>
                             </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- قسم النسخ الاحتياطي -->
+            <div id="backupSection" style="display: none;">
+                <h2 class="mb-4"><i class="bi bi-database"></i> النسخ الاحتياطي والاستعادة</h2>
+                
+                <div class="row">
+                    <!-- إنشاء نسخة احتياطية -->
+                    <div class="col-md-6">
+                        <div class="stat-card">
+                            <h5><i class="bi bi-download"></i> تنزيل نسخة احتياطية</h5>
+                            <p class="text-muted">احفظ جميع البيانات (المجموعات، الإعدادات، الأذكار) في ملف واحد</p>
+                            
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i>
+                                <strong>ملاحظة:</strong> النسخة الاحتياطية تشمل:
+                                <ul class="mb-0 mt-2">
+                                    <li>جميع المجموعات المسجلة</li>
+                                    <li>جميع الأذكار والمحتوى</li>
+                                    <li>الإعدادات والفئات</li>
+                                    <li>جداول النشر</li>
+                                </ul>
+                            </div>
+                            
+                            <button class="btn btn-primary btn-lg w-100" onclick="downloadBackup()">
+                                <i class="bi bi-download"></i> تنزيل النسخة الاحتياطية
+                            </button>
+                            
+                            <div id="backupStatus" class="mt-3"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- استعادة من نسخة احتياطية -->
+                    <div class="col-md-6">
+                        <div class="stat-card">
+                            <h5><i class="bi bi-upload"></i> استعادة نسخة احتياطية</h5>
+                            <p class="text-muted">قم بتحميل ملف نسخة احتياطية لاستعادة البيانات</p>
+                            
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <strong>تحذير:</strong> استعادة النسخة الاحتياطية ستقوم بـ:
+                                <ul class="mb-0 mt-2">
+                                    <li>دمج البيانات المستعادة مع البيانات الحالية</li>
+                                    <li>تحديث البيانات المتطابقة</li>
+                                    <li>الاحتفاظ بالبيانات الموجودة غير المتطابقة</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">اختر ملف النسخة الاحتياطية</label>
+                                <input type="file" class="form-control" id="backupFile" accept=".json">
+                            </div>
+                            
+                            <button class="btn btn-success btn-lg w-100" onclick="restoreBackup()">
+                                <i class="bi bi-upload"></i> استعادة النسخة الاحتياطية
+                            </button>
+                            
+                            <div id="restoreStatus" class="mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- معلومات إضافية -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="stat-card">
+                            <h5><i class="bi bi-lightbulb"></i> نصائح مهمة</h5>
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <h6><i class="bi bi-shield-check text-success"></i> الأمان</h6>
+                                    <p class="text-muted small">احتفظ بنسخة احتياطية في مكان آمن</p>
+                                </div>
+                                <div class="col-md-4">
+                                    <h6><i class="bi bi-clock-history text-primary"></i> الدورية</h6>
+                                    <p class="text-muted small">قم بإنشاء نسخة احتياطية بشكل دوري</p>
+                                </div>
+                                <div class="col-md-4">
+                                    <h6><i class="bi bi-check2-circle text-info"></i> التحقق</h6>
+                                    <p class="text-muted small">تأكد من سلامة الملف قبل الاستعادة</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2854,7 +3162,7 @@ app.get('/admin', (req, res) => {
             // إظهار وإخفاء الأقسام
             function showSection(section) {
                 // إخفاء جميع الأقسام
-                ['dashboard', 'categories', 'adkar', 'groups', 'test'].forEach(sec => {
+                ['dashboard', 'categories', 'adkar', 'groups', 'test', 'backup'].forEach(sec => {
                     document.getElementById(sec + 'Section').style.display = 'none';
                 });
                 
@@ -3538,6 +3846,143 @@ app.get('/admin', (req, res) => {
                 } catch (error) {
                     document.getElementById('testResult').innerHTML = 
                         '<div class="alert alert-danger">حدث خطأ: ' + error.message + '</div>';
+                }
+            }
+            
+            // ========== وظائف النسخ الاحتياطي والاستعادة ==========
+            
+            // تنزيل نسخة احتياطية
+            async function downloadBackup() {
+                const statusDiv = document.getElementById('backupStatus');
+                statusDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> جاري إنشاء النسخة الاحتياطية...</div>';
+                
+                try {
+                    const response = await fetch('/api/backup');
+                    
+                    if (!response.ok) {
+                        throw new Error('فشل في إنشاء النسخة الاحتياطية');
+                    }
+                    
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    
+                    // الحصول على اسم الملف من headers أو إنشاء اسم افتراضي
+                    const contentDisposition = response.headers.get('content-disposition');
+                    let filename = 'azkar-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+                    if (contentDisposition) {
+                        const matches = /filename="(.+)"/.exec(contentDisposition);
+                        if (matches && matches[1]) {
+                            filename = matches[1];
+                        }
+                    }
+                    
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    statusDiv.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> تم تنزيل النسخة الاحتياطية بنجاح!</div>';
+                    
+                    setTimeout(() => {
+                        statusDiv.innerHTML = '';
+                    }, 5000);
+                    
+                } catch (error) {
+                    console.error('Error downloading backup:', error);
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> خطأ: ' + error.message + '</div>';
+                }
+            }
+            
+            // استعادة نسخة احتياطية
+            async function restoreBackup() {
+                const fileInput = document.getElementById('backupFile');
+                const statusDiv = document.getElementById('restoreStatus');
+                
+                if (!fileInput.files || !fileInput.files[0]) {
+                    statusDiv.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> الرجاء اختيار ملف النسخة الاحتياطية أولاً</div>';
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                
+                // التحقق من نوع الملف
+                if (!file.name.endsWith('.json')) {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> يجب أن يكون الملف بصيغة JSON</div>';
+                    return;
+                }
+                
+                // التحقق من حجم الملف (حد أقصى 10MB)
+                const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+                if (file.size > MAX_SIZE) {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> حجم الملف كبير جداً. الحد الأقصى هو 10MB</div>';
+                    return;
+                }
+                
+                // التحقق من صحة محتوى JSON
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+                    if (!data.data) {
+                        statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> تنسيق ملف النسخة الاحتياطية غير صحيح</div>';
+                        return;
+                    }
+                } catch (error) {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> الملف ليس بتنسيق JSON صحيح</div>';
+                    return;
+                }
+                
+                // تأكيد من المستخدم
+                if (!confirm('هل أنت متأكد من استعادة هذه النسخة الاحتياطية؟ سيتم دمج البيانات مع البيانات الحالية.')) {
+                    return;
+                }
+                
+                statusDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> جاري استعادة النسخة الاحتياطية...</div>';
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('backupFile', file);
+                    
+                    const response = await fetch('/api/restore', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(result.error || 'فشل في استعادة النسخة الاحتياطية');
+                    }
+                    
+                    let restoredInfo = '';
+                    if (result.restored) {
+                        restoredInfo = '<ul class="mb-0 mt-2">' +
+                            '<li>المجموعات: ' + result.restored.groups + '</li>' +
+                            '<li>الأذكار: ' + result.restored.adkar + '</li>' +
+                            '<li>الفئات: ' + result.restored.categories + '</li>' +
+                        '</ul>';
+                    }
+                    
+                    statusDiv.innerHTML = '<div class="alert alert-success">' +
+                        '<i class="bi bi-check-circle"></i> ' + result.message +
+                        restoredInfo +
+                    '</div>';
+                    
+                    // تحديث البيانات
+                    loadStats();
+                    
+                    // مسح اختيار الملف
+                    fileInput.value = '';
+                    
+                    setTimeout(() => {
+                        statusDiv.innerHTML = '';
+                    }, 10000);
+                    
+                } catch (error) {
+                    console.error('Error restoring backup:', error);
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> خطأ: ' + error.message + '</div>';
                 }
             }
             
