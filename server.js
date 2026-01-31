@@ -853,6 +853,19 @@ setTimeout(async () => {
 }, 2000);
 
 // ========== وظائف مساعدة ==========
+// Time validation regex and error message constants
+const SCHEDULE_TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+const SCHEDULE_TIME_ERROR_MESSAGE = 'صيغة وقت الجدولة غير صحيحة. يجب أن تكون بصيغة HH:mm (مثال: 06:00 أو 18:30)';
+
+// Helper function to validate schedule time format
+function validateScheduleTime(scheduleTime) {
+    if (!scheduleTime) return { valid: false, error: 'وقت الجدولة مطلوب' };
+    if (!SCHEDULE_TIME_REGEX.test(scheduleTime)) {
+        return { valid: false, error: SCHEDULE_TIME_ERROR_MESSAGE };
+    }
+    return { valid: true };
+}
+
 function parseJSONArray(str, defaultValue = []) {
     try {
         if (!str) return defaultValue;
@@ -1847,10 +1860,10 @@ app.post('/api/adkar', upload.fields([
         
         // التحقق من صحة وقت الجدولة
         if (schedule_time) {
-            const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-            if (!timeRegex.test(schedule_time)) {
+            const validation = validateScheduleTime(schedule_time);
+            if (!validation.valid) {
                 return res.status(400).json({ 
-                    error: 'صيغة وقت الجدولة غير صحيحة. يجب أن تكون بصيغة HH:mm (مثال: 06:00 أو 18:30)',
+                    error: validation.error,
                     details: { schedule_time: schedule_time }
                 });
             }
@@ -1940,10 +1953,10 @@ app.put('/api/adkar/:id', upload.fields([
         
         // التحقق من صحة وقت الجدولة إذا تم تحديثه
         if (updates.schedule_time) {
-            const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-            if (!timeRegex.test(updates.schedule_time)) {
+            const validation = validateScheduleTime(updates.schedule_time);
+            if (!validation.valid) {
                 return res.status(400).json({ 
-                    error: 'صيغة وقت الجدولة غير صحيحة. يجب أن تكون بصيغة HH:mm (مثال: 06:00 أو 18:30)',
+                    error: validation.error,
                     details: { schedule_time: updates.schedule_time }
                 });
             }
