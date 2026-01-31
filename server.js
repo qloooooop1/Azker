@@ -854,7 +854,8 @@ setTimeout(async () => {
 
 // ========== وظائف مساعدة ==========
 // Time validation regex and error message constants
-const SCHEDULE_TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+// Pattern matches: 0-9 (single digit), 10-19 (teens), 20-23 (twenties), followed by :00-59
+const SCHEDULE_TIME_REGEX = /^(0?[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/;
 const SCHEDULE_TIME_ERROR_MESSAGE = 'صيغة وقت الجدولة غير صحيحة. يجب أن تكون بصيغة HH:mm (مثال: 06:00 أو 18:30)';
 
 // Helper function to validate schedule time format
@@ -1203,7 +1204,7 @@ function scheduleAdkar(adkar) {
                     if (validMonths.length > 0) {
                         // في node-schedule، الأشهر من 0-11 (يناير=0)
                         // لكن في قاعدة البيانات نخزنها من 1-12
-                        rule.month = validMonths.map(m => m - 1); // تحويل من 1-12 إلى 0-11
+                        rule.month = validMonths.map(m => m - 1); // Convert DB format (1-12) to node-schedule format (0-11)
                         console.log(`📅 جدولة سنوية - الأشهر: ${validMonths.join(', ')}`);
                         if (validMonths.length < months.length) {
                             console.log(`⚠️ تم تجاهل ${months.length - validMonths.length} شهر غير صالح`);
