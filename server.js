@@ -2269,8 +2269,6 @@ app.get('/api/backup', (req, res) => {
             db.all("SELECT * FROM categories", (err, categories) => {
                 if (err) {
                     console.error('❌ خطأ في استخراج الفئات:', err);
-                    // الفئات اختيارية، نكمل حتى لو حدث خطأ
-                    backup.data.categories = [];
                 }
                 
                 backup.data.categories = categories || [];
@@ -2299,6 +2297,13 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
         return;
     }
     
+    // التحقق من حجم الملف (حد أقصى 10MB)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (req.file.size > MAX_FILE_SIZE) {
+        res.status(400).json({ error: 'حجم الملف كبير جداً. الحد الأقصى هو 10MB' });
+        return;
+    }
+    
     try {
         // قراءة محتوى الملف
         const backupData = JSON.parse(req.file.buffer.toString('utf8'));
@@ -2314,32 +2319,30 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
             categories: 0
         };
         
-        // استعادة الفئات أولاً (إذا وجدت)
-        if (backupData.data.categories && backupData.data.categories.length > 0) {
-            db.serialize(() => {
-                const stmt = db.prepare(`INSERT OR REPLACE INTO categories 
+        db.serialize(() => {
+            // استعادة الفئات أولاً (إذا وجدت)
+            if (backupData.data.categories && backupData.data.categories.length > 0) {
+                const catStmt = db.prepare(`INSERT OR REPLACE INTO categories 
                     (id, name, description, icon, color, created_at) 
                     VALUES (?, ?, ?, ?, ?, ?)`);
                 
                 backupData.data.categories.forEach(cat => {
-                    stmt.run([cat.id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
+                    catStmt.run([cat.id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
                     restored.categories++;
                 });
-                stmt.finalize();
-            });
-        }
-        
-        // استعادة الأذكار
-        if (backupData.data.adkar && backupData.data.adkar.length > 0) {
-            db.serialize(() => {
-                const stmt = db.prepare(`INSERT OR REPLACE INTO adkar 
+                catStmt.finalize();
+            }
+            
+            // استعادة الأذكار (بعد الفئات)
+            if (backupData.data.adkar && backupData.data.adkar.length > 0) {
+                const adkarStmt = db.prepare(`INSERT OR REPLACE INTO adkar 
                     (id, title, content, category_id, type, file_path, file_url, 
                      schedule_type, schedule_time, days_of_week, repeat_interval, 
                      is_active, priority, created_at) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
                 
                 backupData.data.adkar.forEach(adkar => {
-                    stmt.run([
+                    adkarStmt.run([
                         adkar.id, adkar.title, adkar.content, adkar.category_id,
                         adkar.type, adkar.file_path, adkar.file_url,
                         adkar.schedule_type, adkar.schedule_time, adkar.days_of_week,
@@ -2348,27 +2351,27 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                     ]);
                     restored.adkar++;
                 });
-                stmt.finalize();
-            });
-        }
-        
-        // استعادة المجموعات
-        if (backupData.data.groups && backupData.data.groups.length > 0) {
-            db.serialize(() => {
-                const stmt = db.prepare(`INSERT OR REPLACE INTO groups 
+                adkarStmt.finalize();
+            }
+            
+            // استعادة المجموعات (آخراً)
+            if (backupData.data.groups && backupData.data.groups.length > 0) {
+                const groupStmt = db.prepare(`INSERT OR REPLACE INTO groups 
                     (id, chat_id, title, admin_id, bot_enabled, is_active, 
                      is_protected, settings, created_at) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
                 
                 backupData.data.groups.forEach(group => {
-                    stmt.run([
+                    groupStmt.run([
                         group.id, group.chat_id, group.title, group.admin_id,
                         group.bot_enabled, group.is_active, group.is_protected,
                         group.settings, group.created_at
                     ]);
                     restored.groups++;
                 });
-                stmt.finalize(() => {
+                
+                // إرسال الاستجابة بعد اكتمال جميع العمليات
+                groupStmt.finalize(() => {
                     res.json({ 
                         success: true, 
                         message: 'تم استعادة النسخة الاحتياطية بنجاح',
@@ -2380,14 +2383,20 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                     console.log(`   📿 الأذكار: ${restored.adkar}`);
                     console.log(`   🏷️ الفئات: ${restored.categories}`);
                 });
-            });
-        } else {
-            res.json({ 
-                success: true, 
-                message: 'تم استعادة النسخة الاحتياطية بنجاح',
-                restored: restored
-            });
-        }
+            } else {
+                // إذا لم تكن هناك مجموعات، أرسل الاستجابة الآن
+                res.json({ 
+                    success: true, 
+                    message: 'تم استعادة النسخة الاحتياطية بنجاح',
+                    restored: restored
+                });
+                
+                console.log('✅ تم استعادة النسخة الاحتياطية بنجاح');
+                console.log(`   📊 المجموعات: ${restored.groups}`);
+                console.log(`   📿 الأذكار: ${restored.adkar}`);
+                console.log(`   🏷️ الفئات: ${restored.categories}`);
+            }
+        });
         
     } catch (error) {
         console.error('❌ خطأ في استعادة النسخة الاحتياطية:', error);
@@ -3901,6 +3910,26 @@ app.get('/admin', (req, res) => {
                 // التحقق من نوع الملف
                 if (!file.name.endsWith('.json')) {
                     statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> يجب أن يكون الملف بصيغة JSON</div>';
+                    return;
+                }
+                
+                // التحقق من حجم الملف (حد أقصى 10MB)
+                const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+                if (file.size > MAX_SIZE) {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> حجم الملف كبير جداً. الحد الأقصى هو 10MB</div>';
+                    return;
+                }
+                
+                // التحقق من صحة محتوى JSON
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+                    if (!data.data) {
+                        statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> تنسيق ملف النسخة الاحتياطية غير صحيح</div>';
+                        return;
+                    }
+                } catch (error) {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> الملف ليس بتنسيق JSON صحيح</div>';
                     return;
                 }
                 
