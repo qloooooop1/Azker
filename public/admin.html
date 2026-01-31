@@ -398,23 +398,38 @@
                     new Date(group.created_at).toLocaleDateString('ar-SA') : 
                     'غير متوفر';
                 
+                // Escape HTML to prevent XSS
+                const escapeHtml = (text) => {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                };
+                
                 tableHtml += `
                     <tr>
-                        <td>${group.title || 'غير متوفر'} ${protectedBadge}</td>
-                        <td>${group.admin_id || 'غير متوفر'}</td>
+                        <td>${escapeHtml(group.title || 'غير متوفر')} ${protectedBadge}</td>
+                        <td>${escapeHtml(String(group.admin_id || 'غير متوفر'))}</td>
                         <td>${createdAt}</td>
                         <td>-</td>
                         <td>${statusBadge}</td>
                         <td>
                             ${group.is_protected ? 
                                 '<span class="text-muted" title="هذه المجموعة محمية ولا يمكن حذفها"><i class="fas fa-lock"></i></span>' : 
-                                '<button class="btn btn-sm btn-danger" onclick="deleteGroup(' + group.id + ')"><i class="fas fa-trash"></i></button>'}
+                                '<button class="btn btn-sm btn-danger delete-group-btn" data-group-id="' + escapeHtml(String(group.id)) + '"><i class="fas fa-trash"></i></button>'}
                         </td>
                     </tr>
                 `;
             });
             
             document.getElementById('groupsTable').innerHTML = tableHtml;
+            
+            // Add event listeners for delete buttons
+            document.querySelectorAll('.delete-group-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const groupId = this.getAttribute('data-group-id');
+                    deleteGroup(groupId);
+                });
+            });
         }
 
         async function deleteGroup(groupId) {
@@ -430,11 +445,11 @@
                 
                 const data = await res.json();
                 
-                if (data.success) {
+                if (res.ok && data.success) {
                     alert('تم حذف المجموعة بنجاح');
                     loadGroups(); // إعادة تحميل القائمة
-                } else if (data.protected) {
-                    alert('⚠️ ' + data.error);
+                } else if (res.status === 403) {
+                    alert('⚠️ ' + (data.error || 'لا يمكن حذف هذه المجموعة - محمية من الحذف'));
                 } else {
                     alert('حدث خطأ: ' + (data.error || 'خطأ غير معروف'));
                 }

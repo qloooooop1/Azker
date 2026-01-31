@@ -732,12 +732,20 @@ db.serialize(() => {
 
     // إضافة عمود is_protected للمجموعات الموجودة (Migration)
     db.run(`ALTER TABLE groups ADD COLUMN is_protected INTEGER DEFAULT 1`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            console.log('ℹ️ عمود is_protected موجود بالفعل أو تم إضافته');
-        } else if (!err) {
+        if (err && err.message.includes('duplicate column')) {
+            console.log('ℹ️ عمود is_protected موجود بالفعل');
+            // تحديث المجموعات الموجودة التي قد لا تكون محمية
+            db.run(`UPDATE groups SET is_protected = 1 WHERE is_protected IS NULL OR is_protected = 0`, (updateErr) => {
+                if (!updateErr) {
+                    console.log('✅ تم تحديث المجموعات الموجودة لتكون محمية');
+                }
+            });
+        } else if (err) {
+            console.error('❌ خطأ في إضافة عمود is_protected:', err.message);
+        } else {
             console.log('✅ تم إضافة عمود is_protected للمجموعات');
             // تحديث جميع المجموعات الموجودة لتكون محمية
-            db.run(`UPDATE groups SET is_protected = 1 WHERE is_protected IS NULL`, (updateErr) => {
+            db.run(`UPDATE groups SET is_protected = 1`, (updateErr) => {
                 if (!updateErr) {
                     console.log('✅ تم تحديث المجموعات الموجودة لتكون محمية');
                 }
