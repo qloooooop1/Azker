@@ -2120,6 +2120,43 @@ app.get('/api/groups', (req, res) => {
     });
 });
 
+// حذف مجموعة (مع التحقق من الحماية)
+app.delete('/api/groups/:id', (req, res) => {
+    const { id } = req.params;
+    
+    // التحقق من حالة الحماية أولاً
+    db.get("SELECT is_protected, title FROM groups WHERE id = ?", [id], (err, group) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        
+        if (!group) {
+            res.status(404).json({ error: 'المجموعة غير موجودة' });
+            return;
+        }
+        
+        if (group.is_protected === 1) {
+            res.status(403).json({ 
+                error: 'لا يمكن حذف هذه المجموعة - المجموعة محمية من الحذف',
+                protected: true 
+            });
+            console.log(`🚫 محاولة حذف مجموعة محمية: ${group.title} (ID: ${id})`);
+            return;
+        }
+        
+        // حذف المجموعة إذا لم تكن محمية
+        db.run("DELETE FROM groups WHERE id = ?", [id], function(err) {
+            if (err) {
+                res.status(500).json({ error: err.message });
+            } else {
+                res.json({ success: true, changes: this.changes });
+                console.log(`✅ تم حذف المجموعة: ${group.title} (ID: ${id})`);
+            }
+        });
+    });
+});
+
 // إرسال ذكر فوري لمجموعة محددة (للتجربة)
 app.post('/api/test-send/:chatId/:adkarId', async (req, res) => {
     const { chatId, adkarId } = req.params;

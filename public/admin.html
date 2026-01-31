@@ -417,6 +417,33 @@
             document.getElementById('groupsTable').innerHTML = tableHtml;
         }
 
+        async function deleteGroup(groupId) {
+            if (!confirm('هل أنت متأكد من حذف هذه المجموعة؟')) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/groups/${groupId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert('تم حذف المجموعة بنجاح');
+                    loadGroups(); // إعادة تحميل القائمة
+                } else if (data.protected) {
+                    alert('⚠️ ' + data.error);
+                } else {
+                    alert('حدث خطأ: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                console.error('Error deleting group:', error);
+                alert('حدث خطأ أثناء حذف المجموعة');
+            }
+        }
+
         // هنا يمكن إضافة المزيد من الوظائف
     </script>
 </body>
