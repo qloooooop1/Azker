@@ -2234,6 +2234,7 @@ app.post('/api/test-send/:chatId/:adkarId', async (req, res) => {
 });
 
 // ========== النسخ الاحتياطي والاستعادة ==========
+// ملاحظة: يُنصح بإضافة Rate Limiting وAuthentication لهذه النقاط في بيئة الإنتاج
 
 // إنشاء نسخة احتياطية كاملة
 app.get('/api/backup', (req, res) => {
