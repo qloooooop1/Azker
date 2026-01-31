@@ -1129,18 +1129,66 @@ function scheduleAdkar(adkar) {
             return;
         }
         
-        // إنشاء قاعدة الجدولة - كل يوم في الوقت المحدد
+        // إنشاء قاعدة الجدولة حسب نوع الجدولة
         const rule = new schedule.RecurrenceRule();
         rule.hour = hour;
         rule.minute = minute;
         rule.tz = process.env.TIMEZONE || 'Asia/Riyadh'; // المنطقة الزمنية (قابلة للتعديل من .env)
+        
+        // تطبيق قواعد الجدولة حسب النوع
+        const scheduleType = adkar.schedule_type || 'daily';
+        
+        switch(scheduleType) {
+            case 'weekly':
+            case 'specific_days':
+                // جدولة أسبوعية - تحديد أيام الأسبوع
+                const days = parseJSONArray(adkar.schedule_days);
+                if (days && days.length > 0) {
+                    rule.dayOfWeek = days; // 0=الأحد, 1=الإثنين, ..., 6=السبت
+                    console.log(`📅 جدولة أسبوعية - الأيام: ${days.join(', ')}`);
+                } else {
+                    // إذا لم تُحدد أيام، استخدم جدولة يومية
+                    console.log(`⚠️ لا توجد أيام محددة للجدولة الأسبوعية، سيتم استخدام جدولة يومية`);
+                }
+                break;
+                
+            case 'monthly':
+                // جدولة شهرية - تحديد أيام الشهر
+                const dates = parseJSONArray(adkar.schedule_dates);
+                if (dates && dates.length > 0) {
+                    rule.date = dates; // أيام الشهر [1, 15, 30]
+                    console.log(`📅 جدولة شهرية - التواريخ: ${dates.join(', ')}`);
+                } else {
+                    console.log(`⚠️ لا توجد تواريخ محددة للجدولة الشهرية، سيتم استخدام جدولة يومية`);
+                }
+                break;
+                
+            case 'yearly':
+                // جدولة سنوية - تحديد الأشهر
+                const months = parseJSONArray(adkar.schedule_months);
+                if (months && months.length > 0) {
+                    // في node-schedule، الأشهر من 0-11 (يناير=0)
+                    // لكن في قاعدة البيانات نخزنها من 1-12
+                    rule.month = months.map(m => m - 1); // تحويل من 1-12 إلى 0-11
+                    console.log(`📅 جدولة سنوية - الأشهر: ${months.join(', ')}`);
+                } else {
+                    console.log(`⚠️ لا توجد أشهر محددة للجدولة السنوية، سيتم استخدام جدولة يومية`);
+                }
+                break;
+                
+            case 'daily':
+            default:
+                // جدولة يومية - لا حاجة لقواعد إضافية
+                console.log(`📅 جدولة يومية`);
+                break;
+        }
         
         const job = schedule.scheduleJob(rule, () => {
             sendScheduledAzkar(adkar.id);
         });
         
         scheduledJobs.set(jobKey, job);
-        console.log(`✅ تم جدولة الذكر ${adkar.id} "${adkar.title}" في الساعة ${adkar.schedule_time}`);
+        console.log(`✅ تم جدولة الذكر ${adkar.id} "${adkar.title}" في الساعة ${adkar.schedule_time} (${scheduleType})`);
     } catch (error) {
         console.error(`❌ خطأ في جدولة الذكر ${adkar.id}:`, error);
     }
@@ -1150,6 +1198,16 @@ function scheduleAdkar(adkar) {
 function loadAndScheduleAllAzkar() {
     console.log('🔄 تحميل وجدولة جميع الأذكار...');
     console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-SA')}`);
+    
+    // التحقق من إعدادات المنطقة الزمنية
+    const timezone = process.env.TIMEZONE || 'Asia/Riyadh';
+    if (!process.env.TIMEZONE) {
+        console.log(`⚠️ تحذير: لم يتم تعيين TIMEZONE في متغيرات البيئة`);
+        console.log(`📍 سيتم استخدام المنطقة الزمنية الافتراضية: ${timezone}`);
+        console.log(`💡 لتغيير المنطقة الزمنية، أضف TIMEZONE إلى ملف .env`);
+    } else {
+        console.log(`📍 المنطقة الزمنية المستخدمة: ${timezone}`);
+    }
     
     db.all(`SELECT a.*, c.name as category_name FROM adkar a 
            LEFT JOIN categories c ON a.category_id = c.id 
@@ -1779,6 +1837,25 @@ app.post('/api/adkar', upload.fields([
             priority = 1
         } = req.body;
         
+        // التحقق من صحة الحقول المطلوبة
+        if (!title || !content) {
+            return res.status(400).json({ 
+                error: 'العنوان والمحتوى مطلوبان',
+                details: { title: !title, content: !content }
+            });
+        }
+        
+        // التحقق من صحة وقت الجدولة
+        if (schedule_time) {
+            const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+            if (!timeRegex.test(schedule_time)) {
+                return res.status(400).json({ 
+                    error: 'صيغة وقت الجدولة غير صحيحة. يجب أن تكون بصيغة HH:mm (مثال: 06:00 أو 18:30)',
+                    details: { schedule_time: schedule_time }
+                });
+            }
+        }
+        
         let file_path = null;
         let final_content_type = content_type;
         
@@ -1860,6 +1937,17 @@ app.put('/api/adkar/:id', upload.fields([
     try {
         const { id } = req.params;
         const updates = req.body;
+        
+        // التحقق من صحة وقت الجدولة إذا تم تحديثه
+        if (updates.schedule_time) {
+            const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+            if (!timeRegex.test(updates.schedule_time)) {
+                return res.status(400).json({ 
+                    error: 'صيغة وقت الجدولة غير صحيحة. يجب أن تكون بصيغة HH:mm (مثال: 06:00 أو 18:30)',
+                    details: { schedule_time: updates.schedule_time }
+                });
+            }
+        }
         
         let file_path = null;
         let content_type = updates.content_type;
