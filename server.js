@@ -3860,7 +3860,7 @@ app.get('/admin', (req, res) => {
                     
                     // الحصول على اسم الملف من headers أو إنشاء اسم افتراضي
                     const contentDisposition = response.headers.get('content-disposition');
-                    let filename = `azkar-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                    let filename = 'azkar-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
                     if (contentDisposition) {
                         const matches = /filename="(.+)"/.exec(contentDisposition);
                         if (matches && matches[1]) {
@@ -3882,7 +3882,7 @@ app.get('/admin', (req, res) => {
                     
                 } catch (error) {
                     console.error('Error downloading backup:', error);
-                    statusDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> خطأ: ${error.message}</div>`;
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> خطأ: ' + error.message + '</div>';
                 }
             }
             
@@ -3928,17 +3928,17 @@ app.get('/admin', (req, res) => {
                     
                     let restoredInfo = '';
                     if (result.restored) {
-                        restoredInfo = `<ul class="mb-0 mt-2">
-                            <li>المجموعات: ${result.restored.groups}</li>
-                            <li>الأذكار: ${result.restored.adkar}</li>
-                            <li>الفئات: ${result.restored.categories}</li>
-                        </ul>`;
+                        restoredInfo = '<ul class="mb-0 mt-2">' +
+                            '<li>المجموعات: ' + result.restored.groups + '</li>' +
+                            '<li>الأذكار: ' + result.restored.adkar + '</li>' +
+                            '<li>الفئات: ' + result.restored.categories + '</li>' +
+                        '</ul>';
                     }
                     
-                    statusDiv.innerHTML = `<div class="alert alert-success">
-                        <i class="bi bi-check-circle"></i> ${result.message}
-                        ${restoredInfo}
-                    </div>`;
+                    statusDiv.innerHTML = '<div class="alert alert-success">' +
+                        '<i class="bi bi-check-circle"></i> ' + result.message +
+                        restoredInfo +
+                    '</div>';
                     
                     // تحديث البيانات
                     loadStats();
@@ -3952,7 +3952,7 @@ app.get('/admin', (req, res) => {
                     
                 } catch (error) {
                     console.error('Error restoring backup:', error);
-                    statusDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> خطأ: ${error.message}</div>`;
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> خطأ: ' + error.message + '</div>';
                 }
             }
             
