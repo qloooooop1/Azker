@@ -185,41 +185,42 @@
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label>عنوان الذكر</label>
-                                    <input type="text" class="form-control" required>
+                                    <input type="text" name="title" class="form-control" required>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label>التصنيف</label>
-                                    <select class="form-select" required>
-                                        <option value="morning">أذكار الصباح</option>
-                                        <option value="evening">أذكار المساء</option>
-                                        <option value="prayer">أذكار الصلاة</option>
-                                        <option value="quran">آيات قرآنية</option>
-                                        <option value="general">أذكار متنوعة</option>
+                                    <select name="category_id" class="form-select" required>
+                                        <option value="">-- اختر التصنيف --</option>
                                     </select>
                                 </div>
                             </div>
                         </div>
                         <div class="mb-3">
                             <label>المحتوى</label>
-                            <textarea class="form-control" rows="4" required></textarea>
+                            <textarea name="content" class="form-control" rows="4"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label>رابط YouTube (اختياري)</label>
+                            <input type="url" name="youtube_url" class="form-control" placeholder="https://youtube.com/watch?v=... أو https://youtube.com/shorts/...">
+                            <small class="form-text text-muted">يدعم جميع أنواع روابط يوتيوب بما فيها Shorts</small>
                         </div>
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label>نوع الجدولة</label>
-                                    <select class="form-select" onchange="toggleScheduleFields()">
+                                    <select name="schedule_type" class="form-select">
                                         <option value="daily">يومي</option>
                                         <option value="weekly">أسبوعي</option>
-                                        <option value="interval">بفاصل زمني</option>
+                                        <option value="monthly">شهري</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label>وقت النشر</label>
-                                    <input type="time" class="form-control">
+                                    <input type="time" name="schedule_time" class="form-control" value="12:00">
                                 </div>
                             </div>
                         </div>
@@ -227,7 +228,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
-                    <button type="button" class="btn btn-primary">حفظ</button>
+                    <button type="button" class="btn btn-primary" onclick="saveAdkar()">حفظ</button>
                 </div>
             </div>
         </div>
@@ -376,7 +377,83 @@
         }
 
         function showAddAdkarModal() {
+            // Load categories first
+            loadCategories();
             new bootstrap.Modal(document.getElementById('addAdkarModal')).show();
+        }
+
+        async function loadCategories() {
+            try {
+                const res = await fetch('/api/categories', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const categories = await res.json();
+                
+                const select = document.querySelector('#addAdkarForm select[name="category_id"]');
+                select.innerHTML = '<option value="">-- اختر التصنيف --</option>';
+                categories.forEach(cat => {
+                    select.innerHTML += `<option value="${cat.id}">${cat.name}</option>`;
+                });
+            } catch (error) {
+                console.error('Error loading categories:', error);
+            }
+        }
+
+        async function saveAdkar() {
+            const form = document.getElementById('addAdkarForm');
+            const formData = new FormData(form);
+            
+            try {
+                const res = await fetch('/api/adkar', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok && data.success) {
+                    alert('✅ تم إضافة الذكر بنجاح');
+                    bootstrap.Modal.getInstance(document.getElementById('addAdkarModal')).hide();
+                    form.reset();
+                    loadAdkar(); // إعادة تحميل القائمة
+                } else {
+                    alert('❌ حدث خطأ: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                console.error('Error saving adkar:', error);
+                alert('❌ حدث خطأ أثناء حفظ الذكر');
+            }
+        }
+
+        async function editAdkar(id) {
+            // TODO: Implement edit functionality
+            alert('وظيفة التعديل قيد التطوير');
+        }
+
+        async function deleteAdkar(id) {
+            if (!confirm('هل أنت متأكد من حذف هذا الذكر؟')) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/adkar/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok && data.success) {
+                    alert('✅ تم حذف الذكر بنجاح');
+                    loadAdkar(); // إعادة تحميل القائمة
+                } else {
+                    alert('❌ حدث خطأ: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                console.error('Error deleting adkar:', error);
+                alert('❌ حدث خطأ أثناء حذف الذكر');
+            }
         }
 
         async function loadGroups() {
