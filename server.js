@@ -2791,8 +2791,11 @@ app.post('/api/validate-backup', upload.single('backupFile'), (req, res) => {
 });
 
 // استعادة من نسخة احتياطية
-app.post('/api/restore', upload.single('backupFile'), (req, res) => {
+app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     console.log('🔄 بدء استعادة النسخة الاحتياطية...');
+    
+    // Track if response has been sent to prevent multiple responses
+    let responseSent = false;
     
     if (!req.file) {
         res.status(400).json({ 
@@ -2915,169 +2918,212 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
         
         const restorationErrors = [];
         
+        // Helper function to send response safely
+        const sendResponse = (statusCode, responseData) => {
+            if (!responseSent) {
+                responseSent = true;
+                res.status(statusCode).json(responseData);
+            }
+        };
+        
         db.serialize(() => {
             // استعادة الفئات أولاً (إذا وجدت)
             if (backupData.data.categories && backupData.data.categories.length > 0) {
-                const catStmt = db.prepare(`INSERT OR REPLACE INTO categories 
-                    (id, name, description, icon, color, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?)`);
-                
-                backupData.data.categories.forEach((cat, index) => {
-                    try {
-                        // التأكد من تحويل القيم الرقمية بشكل صحيح
-                        const id = typeof cat.id === 'string' ? parseInt(cat.id) : cat.id;
-                        
-                        catStmt.run([id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
-                        restored.categories++;
-                    } catch (error) {
-                        const errorMsg = `فشل استعادة الفئة #${index + 1} (${cat.name}): ${error.message}`;
-                        console.error(`❌ ${errorMsg}`);
-                        restorationErrors.push(errorMsg);
-                    }
-                });
-                catStmt.finalize();
+                try {
+                    const catStmt = db.prepare(`INSERT OR REPLACE INTO categories 
+                        (id, name, description, icon, color, created_at) 
+                        VALUES (?, ?, ?, ?, ?, ?)`);
+                    
+                    backupData.data.categories.forEach((cat, index) => {
+                        try {
+                            // التأكد من تحويل القيم الرقمية بشكل صحيح
+                            const id = typeof cat.id === 'string' ? parseInt(cat.id) : cat.id;
+                            
+                            catStmt.run([id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
+                            restored.categories++;
+                        } catch (error) {
+                            const errorMsg = `فشل استعادة الفئة #${index + 1} (${cat.name}): ${error.message}`;
+                            console.error(`❌ ${errorMsg}`);
+                            restorationErrors.push(errorMsg);
+                        }
+                    });
+                    catStmt.finalize();
+                } catch (prepareError) {
+                    const errorMsg = `فشل تحضير عملية استعادة الفئات: ${prepareError.message}`;
+                    console.error(`❌ ${errorMsg}`);
+                    restorationErrors.push(errorMsg);
+                }
             }
             
             // استعادة الأذكار (بعد الفئات)
             if (backupData.data.adkar && backupData.data.adkar.length > 0) {
-                const adkarStmt = db.prepare(`INSERT OR REPLACE INTO adkar 
-                    (id, category_id, title, content, content_type, file_path, file_url, youtube_url,
-                     schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time, 
-                     is_active, priority, last_sent, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-                
-                backupData.data.adkar.forEach((adkar, index) => {
-                    try {
-                        // التوافق مع الأسماء القديمة والجديدة
-                        const content_type = adkar.content_type || adkar.type || 'text';
-                        
-                        // التأكد من تحويل القيم الرقمية بشكل صحيح
-                        const id = typeof adkar.id === 'string' ? parseInt(adkar.id) : adkar.id;
-                        const category_id = typeof adkar.category_id === 'string' ? parseInt(adkar.category_id) : adkar.category_id;
-                        const is_active = typeof adkar.is_active === 'string' ? parseInt(adkar.is_active) : (adkar.is_active !== undefined ? adkar.is_active : 1);
-                        const priority = typeof adkar.priority === 'string' ? parseInt(adkar.priority) : (adkar.priority || 1);
-                        
-                        // تطبيع مصفوفات JSON مع التحقق من الصحة
-                        let schedule_days = adkar.schedule_days || adkar.days_of_week || '[0,1,2,3,4,5,6]';
-                        if (typeof schedule_days !== 'string') {
-                            schedule_days = JSON.stringify(schedule_days);
+                try {
+                    const adkarStmt = db.prepare(`INSERT OR REPLACE INTO adkar 
+                        (id, category_id, title, content, content_type, file_path, file_url, youtube_url,
+                         schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time, 
+                         is_active, priority, last_sent, created_at) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                    
+                    backupData.data.adkar.forEach((adkar, index) => {
+                        try {
+                            // التوافق مع الأسماء القديمة والجديدة
+                            const content_type = adkar.content_type || adkar.type || 'text';
+                            
+                            // التأكد من تحويل القيم الرقمية بشكل صحيح
+                            const id = typeof adkar.id === 'string' ? parseInt(adkar.id) : adkar.id;
+                            const category_id = typeof adkar.category_id === 'string' ? parseInt(adkar.category_id) : adkar.category_id;
+                            const is_active = typeof adkar.is_active === 'string' ? parseInt(adkar.is_active) : (adkar.is_active !== undefined ? adkar.is_active : 1);
+                            const priority = typeof adkar.priority === 'string' ? parseInt(adkar.priority) : (adkar.priority || 1);
+                            
+                            // تطبيع مصفوفات JSON مع التحقق من الصحة
+                            let schedule_days = adkar.schedule_days || adkar.days_of_week || '[0,1,2,3,4,5,6]';
+                            if (typeof schedule_days !== 'string') {
+                                schedule_days = JSON.stringify(schedule_days);
+                            }
+                            // التحقق من صحة JSON
+                            const daysValidation = backupValidator.isValidJSONArray(schedule_days, 'schedule_days');
+                            if (!daysValidation.valid) {
+                                throw new Error(daysValidation.error);
+                            }
+                            
+                            let schedule_dates = adkar.schedule_dates || '[]';
+                            if (typeof schedule_dates !== 'string') {
+                                schedule_dates = JSON.stringify(schedule_dates);
+                            }
+                            const datesValidation = backupValidator.isValidJSONArray(schedule_dates, 'schedule_dates');
+                            if (!datesValidation.valid) {
+                                throw new Error(datesValidation.error);
+                            }
+                            
+                            let schedule_months = adkar.schedule_months || '[]';
+                            if (typeof schedule_months !== 'string') {
+                                schedule_months = JSON.stringify(schedule_months);
+                            }
+                            const monthsValidation = backupValidator.isValidJSONArray(schedule_months, 'schedule_months');
+                            if (!monthsValidation.valid) {
+                                throw new Error(monthsValidation.error);
+                            }
+                            
+                            adkarStmt.run([
+                                id, 
+                                category_id, 
+                                adkar.title || null, 
+                                adkar.content || null, 
+                                content_type,
+                                adkar.file_path, 
+                                adkar.file_url,
+                                adkar.youtube_url || null,
+                                adkar.schedule_type || 'daily', 
+                                schedule_days,
+                                schedule_dates,
+                                schedule_months,
+                                adkar.schedule_time || '12:00',
+                                is_active, 
+                                priority,
+                                adkar.last_sent,
+                                adkar.created_at
+                            ]);
+                            restored.adkar++;
+                        } catch (error) {
+                            const errorMsg = `فشل استعادة الذكر #${index + 1} (${adkar.title || 'بدون عنوان'}): ${error.message}`;
+                            console.error(`❌ ${errorMsg}`);
+                            restorationErrors.push(errorMsg);
                         }
-                        // التحقق من صحة JSON
-                        const daysValidation = backupValidator.isValidJSONArray(schedule_days, 'schedule_days');
-                        if (!daysValidation.valid) {
-                            throw new Error(daysValidation.error);
-                        }
-                        
-                        let schedule_dates = adkar.schedule_dates || '[]';
-                        if (typeof schedule_dates !== 'string') {
-                            schedule_dates = JSON.stringify(schedule_dates);
-                        }
-                        const datesValidation = backupValidator.isValidJSONArray(schedule_dates, 'schedule_dates');
-                        if (!datesValidation.valid) {
-                            throw new Error(datesValidation.error);
-                        }
-                        
-                        let schedule_months = adkar.schedule_months || '[]';
-                        if (typeof schedule_months !== 'string') {
-                            schedule_months = JSON.stringify(schedule_months);
-                        }
-                        const monthsValidation = backupValidator.isValidJSONArray(schedule_months, 'schedule_months');
-                        if (!monthsValidation.valid) {
-                            throw new Error(monthsValidation.error);
-                        }
-                        
-                        adkarStmt.run([
-                            id, 
-                            category_id, 
-                            adkar.title || null, 
-                            adkar.content || null, 
-                            content_type,
-                            adkar.file_path, 
-                            adkar.file_url,
-                            adkar.youtube_url || null,
-                            adkar.schedule_type || 'daily', 
-                            schedule_days,
-                            schedule_dates,
-                            schedule_months,
-                            adkar.schedule_time || '12:00',
-                            is_active, 
-                            priority,
-                            adkar.last_sent,
-                            adkar.created_at
-                        ]);
-                        restored.adkar++;
-                    } catch (error) {
-                        const errorMsg = `فشل استعادة الذكر #${index + 1} (${adkar.title || 'بدون عنوان'}): ${error.message}`;
-                        console.error(`❌ ${errorMsg}`);
-                        restorationErrors.push(errorMsg);
-                    }
-                });
-                adkarStmt.finalize();
+                    });
+                    adkarStmt.finalize();
+                } catch (prepareError) {
+                    const errorMsg = `فشل تحضير عملية استعادة الأذكار: ${prepareError.message}`;
+                    console.error(`❌ ${errorMsg}`);
+                    restorationErrors.push(errorMsg);
+                }
             }
             
             // استعادة المجموعات (آخراً)
             if (backupData.data.groups && backupData.data.groups.length > 0) {
-                const groupStmt = db.prepare(`INSERT OR REPLACE INTO groups 
-                    (id, chat_id, title, admin_id, bot_enabled, is_active, 
-                     is_protected, settings, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-                
-                backupData.data.groups.forEach((group, index) => {
-                    try {
-                        // التأكد من تحويل القيم الرقمية بشكل صحيح
-                        // Note: Telegram IDs are within safe integer range, parseInt() is safe
-                        const id = typeof group.id === 'string' ? parseInt(group.id) : group.id;
-                        const chat_id = typeof group.chat_id === 'string' ? parseInt(group.chat_id) : group.chat_id;
-                        const admin_id = group.admin_id ? (typeof group.admin_id === 'string' ? parseInt(group.admin_id) : group.admin_id) : null;
-                        const bot_enabled = typeof group.bot_enabled === 'string' ? parseInt(group.bot_enabled) : (group.bot_enabled !== undefined ? group.bot_enabled : 1);
-                        const is_active = typeof group.is_active === 'string' ? parseInt(group.is_active) : (group.is_active !== undefined ? group.is_active : 1);
-                        const is_protected = typeof group.is_protected === 'string' ? parseInt(group.is_protected) : (group.is_protected !== undefined ? group.is_protected : 0);
-                        
-                        // التأكد من تطبيع settings
-                        let settings = group.settings || '{}';
-                        if (typeof settings === 'object') {
-                            settings = JSON.stringify(settings);
+                try {
+                    const groupStmt = db.prepare(`INSERT OR REPLACE INTO groups 
+                        (id, chat_id, title, admin_id, bot_enabled, is_active, 
+                         is_protected, settings, created_at) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                    
+                    backupData.data.groups.forEach((group, index) => {
+                        try {
+                            // التأكد من تحويل القيم الرقمية بشكل صحيح
+                            // Note: Telegram IDs are within safe integer range, parseInt() is safe
+                            const id = typeof group.id === 'string' ? parseInt(group.id) : group.id;
+                            const chat_id = typeof group.chat_id === 'string' ? parseInt(group.chat_id) : group.chat_id;
+                            const admin_id = group.admin_id ? (typeof group.admin_id === 'string' ? parseInt(group.admin_id) : group.admin_id) : null;
+                            const bot_enabled = typeof group.bot_enabled === 'string' ? parseInt(group.bot_enabled) : (group.bot_enabled !== undefined ? group.bot_enabled : 1);
+                            const is_active = typeof group.is_active === 'string' ? parseInt(group.is_active) : (group.is_active !== undefined ? group.is_active : 1);
+                            const is_protected = typeof group.is_protected === 'string' ? parseInt(group.is_protected) : (group.is_protected !== undefined ? group.is_protected : 0);
+                            
+                            // التأكد من تطبيع settings
+                            let settings = group.settings || '{}';
+                            if (typeof settings === 'object') {
+                                settings = JSON.stringify(settings);
+                            }
+                            
+                            groupStmt.run([
+                                id, chat_id, group.title, admin_id,
+                                bot_enabled, is_active, is_protected,
+                                settings, group.created_at
+                            ]);
+                            restored.groups++;
+                        } catch (error) {
+                            const errorMsg = `فشل استعادة المجموعة #${index + 1} (${group.title}): ${error.message}`;
+                            console.error(`❌ ${errorMsg}`);
+                            restorationErrors.push(errorMsg);
+                        }
+                    });
+                    
+                    // إرسال الاستجابة بعد اكتمال جميع العمليات
+                    groupStmt.finalize((finalizeErr) => {
+                        if (finalizeErr) {
+                            console.error('❌ خطأ في إغلاق prepared statement:', finalizeErr);
+                            sendResponse(500, {
+                                error: 'خطأ في إتمام عملية الاستعادة',
+                                details: finalizeErr.message
+                            });
+                            return;
                         }
                         
-                        groupStmt.run([
-                            id, chat_id, group.title, admin_id,
-                            bot_enabled, is_active, is_protected,
-                            settings, group.created_at
-                        ]);
-                        restored.groups++;
-                    } catch (error) {
-                        const errorMsg = `فشل استعادة المجموعة #${index + 1} (${group.title}): ${error.message}`;
-                        console.error(`❌ ${errorMsg}`);
-                        restorationErrors.push(errorMsg);
-                    }
-                });
-                
-                // إرسال الاستجابة بعد اكتمال جميع العمليات
-                groupStmt.finalize(() => {
-                    const response = {
-                        success: restorationErrors.length === 0,
-                        message: restorationErrors.length === 0 
-                            ? 'تم استعادة النسخة الاحتياطية بنجاح' 
-                            : 'تمت استعادة النسخة الاحتياطية مع بعض الأخطاء',
+                        const response = {
+                            success: restorationErrors.length === 0,
+                            message: restorationErrors.length === 0 
+                                ? 'تم استعادة النسخة الاحتياطية بنجاح' 
+                                : 'تمت استعادة النسخة الاحتياطية مع بعض الأخطاء',
+                            restored: restored,
+                            warnings: validation.warnings
+                        };
+                        
+                        if (restorationErrors.length > 0) {
+                            response.errors = restorationErrors;
+                            response.suggestion = 'تم استعادة معظم البيانات، ولكن فشلت بعض العناصر. يرجى مراجعة الأخطاء أعلاه.';
+                        }
+                        
+                        sendResponse(200, response);
+                        
+                        console.log('✅ تمت عملية الاستعادة');
+                        console.log(`   📊 المجموعات: ${restored.groups}`);
+                        console.log(`   📿 الأذكار: ${restored.adkar}`);
+                        console.log(`   🏷️ الفئات: ${restored.categories}`);
+                        if (restorationErrors.length > 0) {
+                            console.log(`   ⚠️  أخطاء: ${restorationErrors.length}`);
+                        }
+                    });
+                } catch (prepareError) {
+                    const errorMsg = `فشل تحضير عملية استعادة المجموعات: ${prepareError.message}`;
+                    console.error(`❌ ${errorMsg}`);
+                    restorationErrors.push(errorMsg);
+                    
+                    // إرسال الاستجابة حتى في حالة الفشل
+                    sendResponse(500, {
+                        error: 'فشل استعادة المجموعات',
+                        details: prepareError.message,
                         restored: restored,
-                        warnings: validation.warnings
-                    };
-                    
-                    if (restorationErrors.length > 0) {
-                        response.errors = restorationErrors;
-                        response.suggestion = 'تم استعادة معظم البيانات، ولكن فشلت بعض العناصر. يرجى مراجعة الأخطاء أعلاه.';
-                    }
-                    
-                    res.json(response);
-                    
-                    console.log('✅ تمت عملية الاستعادة');
-                    console.log(`   📊 المجموعات: ${restored.groups}`);
-                    console.log(`   📿 الأذكار: ${restored.adkar}`);
-                    console.log(`   🏷️ الفئات: ${restored.categories}`);
-                    if (restorationErrors.length > 0) {
-                        console.log(`   ⚠️  أخطاء: ${restorationErrors.length}`);
-                    }
-                });
+                        errors: restorationErrors
+                    });
+                }
             } else {
                 // إذا لم تكن هناك مجموعات، أرسل الاستجابة الآن
                 const response = {
@@ -3094,7 +3140,7 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                     response.suggestion = 'تم استعادة معظم البيانات، ولكن فشلت بعض العناصر. يرجى مراجعة الأخطاء أعلاه.';
                 }
                 
-                res.json(response);
+                sendResponse(200, response);
                 
                 console.log('✅ تمت عملية الاستعادة');
                 console.log(`   📊 المجموعات: ${restored.groups}`);
@@ -3108,11 +3154,21 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
         
     } catch (error) {
         console.error('❌ خطأ في استعادة النسخة الاحتياطية:', error);
-        res.status(500).json({ 
-            error: 'خطأ في معالجة ملف النسخة الاحتياطية',
-            details: error.message,
-            suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
-        });
+        
+        // Log full error details to server console for debugging
+        if (process.env.NODE_ENV === 'development') {
+            console.error('Stack trace:', error.stack);
+        }
+        
+        // Make sure we always send a valid JSON response
+        if (!responseSent) {
+            responseSent = true;
+            res.status(500).json({ 
+                error: 'خطأ في معالجة ملف النسخة الاحتياطية',
+                details: error.message,
+                suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
+            });
+        }
     }
 });
 
