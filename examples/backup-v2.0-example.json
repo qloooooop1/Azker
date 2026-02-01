@@ -1,0 +1,46 @@
+{
+  "version": "2.0",
+  "timestamp": "2024-06-15T12:00:00Z",
+  "data": {
+    "groups": [
+      {
+        "id": 1,
+        "chat_id": -1001234567890,
+        "title": "Test Group (v2.0 format)",
+        "admin_id": 123456789,
+        "bot_enabled": 1,
+        "is_active": 1,
+        "is_protected": 0,
+        "settings": "{}",
+        "created_at": "2024-06-15T00:00:00Z"
+      }
+    ],
+    "adkar": [
+      {
+        "id": 1,
+        "category_id": 1,
+        "title": "Evening Adkar (v2.0 with mixed field names)",
+        "content": "الحمد لله رب العالمين",
+        "type": "text",
+        "schedule_days": "[0,1,2,3,4,5,6]",
+        "schedule_dates": "[]",
+        "schedule_months": "[]",
+        "schedule_time": "18:00",
+        "schedule_type": "daily",
+        "is_active": 1,
+        "priority": 2,
+        "created_at": "2024-06-15T00:00:00Z"
+      }
+    ],
+    "categories": [
+      {
+        "id": 1,
+        "name": "Evening Remembrance",
+        "description": "Adkar for evening time",
+        "icon": "🌙",
+        "color": "#4B0082",
+        "created_at": "2024-06-15T00:00:00Z"
+      }
+    ]
+  }
+}

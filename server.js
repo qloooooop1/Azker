@@ -11,6 +11,10 @@ const axios = require('axios');
 const { Readable } = require('stream');
 const schedule = require('node-schedule');
 
+// Backup versioning and validation modules
+const backupVersionManager = require('./lib/backup-version-manager');
+const backupValidator = require('./lib/backup-validator');
+
 // ========== إعدادات التطبيق ==========
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -2737,7 +2741,7 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
     try {
         // المرحلة 1: التحقق من صحة JSON
         const fileContent = req.file.buffer.toString('utf8');
-        const jsonValidation = isValidJSON(fileContent);
+        const jsonValidation = backupValidator.isValidJSON(fileContent);
         
         if (!jsonValidation.valid) {
             console.error('❌ خطأ في تحليل JSON:', jsonValidation.details);
@@ -2752,16 +2756,49 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
         // قراءة محتوى الملف
         backupData = JSON.parse(fileContent);
         
-        // المرحلة 2: التحقق الشامل من البيانات
-        const validation = validateBackupData(backupData);
+        // المرحلة 2: اكتشاف الإصدار والترحيل التلقائي
+        console.log('\n' + '='.repeat(60));
+        console.log('📦 Backup Version Detection and Migration');
+        console.log('='.repeat(60));
         
-        if (!validation.valid) {
-            console.error('❌ فشل التحقق من النسخة الاحتياطية:');
-            validation.errors.forEach(err => console.error(`   - ${err}`));
+        const originalVersion = backupVersionManager.detectBackupVersion(backupData);
+        console.log(`📌 Original backup version: ${originalVersion}`);
+        
+        // ترحيل النسخة الاحتياطية إلى الإصدار الحالي
+        try {
+            backupData = backupVersionManager.migrateToCurrentVersion(backupData, console);
+        } catch (migrationError) {
+            console.error('❌ خطأ في ترحيل النسخة الاحتياطية:', migrationError.message);
+            res.status(400).json({ 
+                error: 'فشل ترحيل النسخة الاحتياطية',
+                details: migrationError.message,
+                suggestion: 'الملف يستخدم إصداراً غير مدعوم. الإصدارات المدعومة: ' + backupVersionManager.SUPPORTED_VERSIONS.join(', ')
+            });
+            return;
+        }
+        
+        console.log('='.repeat(60) + '\n');
+        
+        // المرحلة 3: التحقق الشامل من البيانات مع تسجيل مفصل
+        console.log('\n' + '='.repeat(60));
+        console.log('🔍 Detailed Backup Validation');
+        console.log('='.repeat(60));
+        
+        const validation = backupValidator.validateBackupDataEnhanced(backupData);
+        
+        // طباعة تقرير التحقق المفصل
+        if (validation.errors.length > 0) {
+            console.error('\n❌ فشل التحقق من النسخة الاحتياطية:');
+            validation.errors.forEach(err => {
+                console.error(`   - ${err.message}`);
+                if (err.field) console.error(`     Field: ${err.field}`);
+                if (err.suggestion) console.error(`     💡 ${err.suggestion}`);
+            });
             
             res.status(400).json({ 
                 error: 'النسخة الاحتياطية تحتوي على بيانات غير صحيحة',
                 validationErrors: validation.errors,
+                validationReport: validation,
                 suggestion: 'يرجى التحقق من الأخطاء المذكورة وإصلاح ملف النسخة الاحتياطية'
             });
             return;
@@ -2769,11 +2806,18 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
         
         // عرض التحذيرات إن وجدت
         if (validation.warnings.length > 0) {
-            console.warn('⚠️  تحذيرات:');
-            validation.warnings.forEach(warn => console.warn(`   - ${warn}`));
+            console.warn('\n⚠️  تحذيرات:');
+            validation.warnings.forEach(warn => {
+                console.warn(`   - ${warn.message}`);
+                if (warn.field) console.warn(`     Field: ${warn.field}`);
+            });
         }
         
+        console.log('='.repeat(60) + '\n');
+        
         console.log('✅ التحقق من النسخة الاحتياطية نجح');
+        console.log(`   📦 النسخة الأصلية: ${originalVersion}`);
+        console.log(`   📦 النسخة الحالية: ${backupVersionManager.CURRENT_VERSION}`);
         console.log(`   📊 المجموعات: ${backupData.data.groups?.length || 0}`);
         console.log(`   📿 الأذكار: ${backupData.data.adkar?.length || 0}`);
         console.log(`   🏷️ الفئات: ${backupData.data.categories?.length || 0}`);
@@ -2834,7 +2878,7 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                             schedule_days = JSON.stringify(schedule_days);
                         }
                         // التحقق من صحة JSON
-                        const daysValidation = isValidJSONArray(schedule_days, 'schedule_days');
+                        const daysValidation = backupValidator.isValidJSONArray(schedule_days, 'schedule_days');
                         if (!daysValidation.valid) {
                             throw new Error(daysValidation.error);
                         }
@@ -2843,7 +2887,7 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                         if (typeof schedule_dates !== 'string') {
                             schedule_dates = JSON.stringify(schedule_dates);
                         }
-                        const datesValidation = isValidJSONArray(schedule_dates, 'schedule_dates');
+                        const datesValidation = backupValidator.isValidJSONArray(schedule_dates, 'schedule_dates');
                         if (!datesValidation.valid) {
                             throw new Error(datesValidation.error);
                         }
@@ -2852,7 +2896,7 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                         if (typeof schedule_months !== 'string') {
                             schedule_months = JSON.stringify(schedule_months);
                         }
-                        const monthsValidation = isValidJSONArray(schedule_months, 'schedule_months');
+                        const monthsValidation = backupValidator.isValidJSONArray(schedule_months, 'schedule_months');
                         if (!monthsValidation.valid) {
                             throw new Error(monthsValidation.error);
                         }
