@@ -1,0 +1,50 @@
+{
+  "version": "3.0.0",
+  "timestamp": "2026-02-01T18:00:00.000Z",
+  "data": {
+    "categories": [
+      {
+        "id": "1",
+        "name": "Test Category with String ID",
+        "description": "Testing string to int conversion",
+        "icon": "🌅",
+        "color": "#FFD700",
+        "created_at": "2026-01-01T08:00:00.000Z"
+      }
+    ],
+    "adkar": [
+      {
+        "id": "10",
+        "category_id": "1",
+        "title": "Test with Native Arrays and String IDs",
+        "content": "Testing type coercion",
+        "content_type": "text",
+        "file_path": null,
+        "file_url": null,
+        "youtube_url": null,
+        "schedule_type": "daily",
+        "schedule_days": [0, 1, 2, 3, 4, 5, 6],
+        "schedule_dates": [],
+        "schedule_months": [],
+        "schedule_time": "08:00",
+        "is_active": "1",
+        "priority": "5",
+        "last_sent": null,
+        "created_at": "2026-01-01T08:00:00.000Z"
+      }
+    ],
+    "groups": [
+      {
+        "id": "100",
+        "chat_id": "-1001234567890",
+        "title": "Test Group with String IDs",
+        "admin_id": "987654321",
+        "bot_enabled": "1",
+        "is_active": "1",
+        "is_protected": "0",
+        "settings": {"theme": "dark", "notifications": true},
+        "created_at": "2026-01-01T08:00:00.000Z"
+      }
+    ]
+  }
+}
