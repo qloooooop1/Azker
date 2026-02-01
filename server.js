@@ -592,8 +592,16 @@ const storage = multer.diskStorage({
         let folder = 'general';
         if (file.fieldname === 'audio_file') folder = 'audio';
         else if (file.fieldname === 'image_file') folder = 'images';
+        else if (file.fieldname === 'video_file') folder = 'videos';
         else if (file.fieldname === 'pdf_file') folder = 'pdfs';
-        else if (file.fieldname === 'file') folder = 'temp';
+        else if (file.fieldname === 'file') {
+            // Auto-detect based on mime type
+            if (file.mimetype.startsWith('audio/')) folder = 'audio';
+            else if (file.mimetype.startsWith('image/')) folder = 'images';
+            else if (file.mimetype.startsWith('video/')) folder = 'videos';
+            else if (file.mimetype === 'application/pdf') folder = 'pdfs';
+            else folder = 'temp';
+        }
         
         const dir = path.join(uploadsDir, folder);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -612,8 +620,9 @@ const upload = multer({
         const allowedTypes = {
             'audio_file': ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/x-m4a'],
             'image_file': ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
+            'video_file': ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm'],
             'pdf_file': ['application/pdf'],
-            'file': ['audio/*', 'image/*', 'application/pdf', 'video/*']
+            'file': ['audio/*', 'image/*', 'video/*', 'application/pdf']
         };
         
         const fileType = file.fieldname;
@@ -640,11 +649,13 @@ async function downloadFileFromUrl(url, fileType) {
         const ext = path.extname(url.split('?')[0]) || 
                    (fileType === 'audio' ? '.mp3' : 
                     fileType === 'image' ? '.jpg' : 
+                    fileType === 'video' ? '.mp4' :
                     fileType === 'pdf' ? '.pdf' : '.bin');
         
         const fileName = Date.now() + '-' + Math.round(Math.random() * 1E9) + ext;
         const folder = fileType === 'audio' ? 'audio' : 
                       fileType === 'image' ? 'images' : 
+                      fileType === 'video' ? 'videos' :
                       fileType === 'pdf' ? 'pdfs' : 'temp';
         
         const filePath = path.join(uploadsDir, folder, fileName);
@@ -1995,6 +2006,7 @@ app.get('/api/adkar/:id', (req, res) => {
 app.post('/api/adkar', upload.fields([
     { name: 'audio_file', maxCount: 1 },
     { name: 'image_file', maxCount: 1 },
+    { name: 'video_file', maxCount: 1 },
     { name: 'pdf_file', maxCount: 1 },
     { name: 'file', maxCount: 1 }
 ]), async (req, res) => {
@@ -2017,7 +2029,7 @@ app.post('/api/adkar', upload.fields([
         
         // التحقق من صحة الحقول المطلوبة
         // السماح بالوسائط بدون نص (media-only posts)
-        const hasMedia = file_url || youtube_url || req.files?.audio_file || req.files?.image_file || req.files?.pdf_file || req.files?.file;
+        const hasMedia = file_url || youtube_url || req.files?.audio_file || req.files?.image_file || req.files?.video_file || req.files?.pdf_file || req.files?.file;
         
         if (!title && !content && !hasMedia) {
             return res.status(400).json({ 
@@ -2067,6 +2079,9 @@ app.post('/api/adkar', upload.fields([
             } else if (req.files?.image_file) {
                 file_path = `/uploads/images/${req.files.image_file[0].filename}`;
                 final_content_type = 'image';
+            } else if (req.files?.video_file) {
+                file_path = `/uploads/videos/${req.files.video_file[0].filename}`;
+                final_content_type = 'video';
             } else if (req.files?.pdf_file) {
                 file_path = `/uploads/pdfs/${req.files.pdf_file[0].filename}`;
                 final_content_type = 'pdf';
@@ -2129,6 +2144,7 @@ app.post('/api/adkar', upload.fields([
 app.put('/api/adkar/:id', upload.fields([
     { name: 'audio_file', maxCount: 1 },
     { name: 'image_file', maxCount: 1 },
+    { name: 'video_file', maxCount: 1 },
     { name: 'pdf_file', maxCount: 1 },
     { name: 'file', maxCount: 1 }
 ]), async (req, res) => {
@@ -2179,6 +2195,9 @@ app.put('/api/adkar/:id', upload.fields([
             } else if (req.files.image_file) {
                 file_path = `/uploads/images/${req.files.image_file[0].filename}`;
                 content_type = 'image';
+            } else if (req.files.video_file) {
+                file_path = `/uploads/videos/${req.files.video_file[0].filename}`;
+                content_type = 'video';
             } else if (req.files.pdf_file) {
                 file_path = `/uploads/pdfs/${req.files.pdf_file[0].filename}`;
                 content_type = 'pdf';
