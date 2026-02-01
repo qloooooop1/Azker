@@ -10,6 +10,11 @@ console.log('🧪 بدء اختبارات التحقق من النسخ الاح�
 // ========== دوال التحقق (نسخة من server.js) ==========
 
 function isValidJSON(str) {
+    // إذا كانت القيمة كائن أو مصفوفة بالفعل، فهي صالحة
+    if (typeof str === 'object' && str !== null) {
+        return { valid: true };
+    }
+    
     try {
         JSON.parse(str);
         return { valid: true };
@@ -24,6 +29,19 @@ function isValidJSON(str) {
 
 function isValidJSONArray(str, fieldName) {
     if (!str) return { valid: true, value: [] };
+    
+    // إذا كانت القيمة مصفوفة بالفعل، قم بتحويلها إلى JSON string
+    if (Array.isArray(str)) {
+        try {
+            return { valid: true, value: str };
+        } catch (error) {
+            return {
+                valid: false,
+                error: `الحقل "${fieldName}" يحتوي على مصفوفة غير صالحة`,
+                details: error.message
+            };
+        }
+    }
     
     try {
         const parsed = JSON.parse(str);
