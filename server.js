@@ -697,6 +697,8 @@ db.serialize(() => {
     )`);
 
     // جدول الأذكار مع جدولة متقدمة
+    // Note: For existing installations, title and content may still have NOT NULL constraints
+    // Run migrate-db.js to update the database for new features
     db.run(`CREATE TABLE IF NOT EXISTS adkar (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category_id INTEGER,
@@ -1005,7 +1007,10 @@ async function sendAdkarToGroup(chatId, adkar) {
 
         // إرسال المحتوى حسب النوع
         if (adkar.content_type === 'text') {
-            await bot.sendMessage(chatId, message || 'ذكر', { parse_mode: 'Markdown' });
+            // Only send text message if there's actually a message to send
+            if (message) {
+                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            }
             
         } else if (adkar.content_type === 'video') {
             // معالجة مقاطع الفيديو (YouTube أو ملفات فيديو)
@@ -2113,7 +2118,8 @@ app.post('/api/adkar', upload.fields([
             is_active, priority
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                category_id || null, title || null, content || null, final_content_type, file_path, file_url || null, final_youtube_url,
+                category_id || null, title || null, content || null, final_content_type, 
+                file_path || null, file_url || null, final_youtube_url || null,
                 schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time || '12:00',
                 is_active, priority
             ],

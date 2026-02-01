@@ -27,7 +27,7 @@ console.log('🔄 Starting database migration...');
 console.log(`📁 Database path: ${DB_PATH}`);
 
 if (!fs.existsSync(DB_PATH)) {
-    console.log('ℹ️  Database does not exist yet. It will be created with the new schema on first run.');
+    console.log('ℹ️ Database does not exist yet. It will be created with the new schema on first run.');
     console.log('✅ No migration needed.');
     process.exit(0);
 }
