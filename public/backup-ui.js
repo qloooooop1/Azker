@@ -119,6 +119,12 @@ async function previewBackup() {
         // Get token from parent scope (assumed to be available globally)
         const token = window.token || localStorage.getItem('adminToken');
         
+        if (!token) {
+            showToast('❌ خطأ في المصادقة. يرجى تسجيل الدخول مرة أخرى.', 'error');
+            fileInput.value = '';
+            return;
+        }
+        
         const res = await fetch('/api/backup/preview', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` },
