@@ -2452,36 +2452,291 @@ app.get('/api/backup', (req, res) => {
     });
 });
 
+// ========== دوال التحقق من صحة النسخة الاحتياطية ==========
+
+/**
+ * التحقق من صحة بنية JSON
+ */
+function isValidJSON(str) {
+    try {
+        JSON.parse(str);
+        return { valid: true };
+    } catch (error) {
+        return { 
+            valid: false, 
+            error: 'الملف لا يحتوي على JSON صحيح',
+            details: error.message 
+        };
+    }
+}
+
+/**
+ * التحقق من صحة مصفوفة JSON
+ */
+function isValidJSONArray(str, fieldName) {
+    if (!str) return { valid: true, value: [] }; // القيم الفارغة مقبولة
+    
+    try {
+        const parsed = JSON.parse(str);
+        if (!Array.isArray(parsed)) {
+            return {
+                valid: false,
+                error: `الحقل "${fieldName}" يجب أن يكون مصفوفة JSON`,
+                details: `القيمة الحالية: ${str}`
+            };
+        }
+        return { valid: true, value: parsed };
+    } catch (error) {
+        return {
+            valid: false,
+            error: `الحقل "${fieldName}" يحتوي على JSON غير صحيح`,
+            details: error.message
+        };
+    }
+}
+
+/**
+ * التحقق من صحة عنصر ذكر واحد
+ */
+function validateAdkarItem(adkar, index) {
+    const errors = [];
+    
+    // التحقق من معرف الفئة
+    if (!adkar.category_id && adkar.category_id !== 0) {
+        errors.push(`الذكر #${index + 1}: معرف الفئة (category_id) مطلوب`);
+    }
+    
+    // التحقق من نوع المحتوى
+    const contentType = adkar.content_type || adkar.type || 'text';
+    const validContentTypes = ['text', 'audio', 'image', 'video', 'pdf'];
+    if (!validContentTypes.includes(contentType)) {
+        errors.push(`الذكر #${index + 1}: نوع المحتوى "${contentType}" غير صحيح. القيم المسموحة: ${validContentTypes.join(', ')}`);
+    }
+    
+    // التحقق من مصفوفات JSON
+    const scheduleDays = adkar.schedule_days || adkar.days_of_week || '[0,1,2,3,4,5,6]';
+    const daysValidation = isValidJSONArray(scheduleDays, 'schedule_days');
+    if (!daysValidation.valid) {
+        errors.push(`الذكر #${index + 1}: ${daysValidation.error} - ${daysValidation.details}`);
+    }
+    
+    const scheduleDates = adkar.schedule_dates || '[]';
+    const datesValidation = isValidJSONArray(scheduleDates, 'schedule_dates');
+    if (!datesValidation.valid) {
+        errors.push(`الذكر #${index + 1}: ${datesValidation.error} - ${datesValidation.details}`);
+    }
+    
+    const scheduleMonths = adkar.schedule_months || '[]';
+    const monthsValidation = isValidJSONArray(scheduleMonths, 'schedule_months');
+    if (!monthsValidation.valid) {
+        errors.push(`الذكر #${index + 1}: ${monthsValidation.error} - ${monthsValidation.details}`);
+    }
+    
+    // التحقق من وقت الجدولة
+    const scheduleTime = adkar.schedule_time || '12:00';
+    const timePattern = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timePattern.test(scheduleTime)) {
+        errors.push(`الذكر #${index + 1}: وقت الجدولة "${scheduleTime}" غير صحيح. يجب أن يكون بصيغة HH:MM (مثال: 08:30)`);
+    }
+    
+    return errors;
+}
+
+/**
+ * التحقق من صحة عنصر مجموعة واحدة
+ */
+function validateGroupItem(group, index) {
+    const errors = [];
+    
+    if (!group.chat_id && group.chat_id !== 0) {
+        errors.push(`المجموعة #${index + 1}: معرف المحادثة (chat_id) مطلوب`);
+    }
+    
+    if (!group.title) {
+        errors.push(`المجموعة #${index + 1}: العنوان (title) مطلوب`);
+    }
+    
+    // التحقق من settings إذا كانت موجودة
+    if (group.settings && typeof group.settings === 'string') {
+        const settingsValidation = isValidJSON(group.settings);
+        if (!settingsValidation.valid) {
+            errors.push(`المجموعة #${index + 1}: إعدادات المجموعة (settings) تحتوي على JSON غير صحيح`);
+        }
+    }
+    
+    return errors;
+}
+
+/**
+ * التحقق من صحة عنصر فئة واحدة
+ */
+function validateCategoryItem(category, index) {
+    const errors = [];
+    
+    if (!category.name) {
+        errors.push(`الفئة #${index + 1}: الاسم (name) مطلوب`);
+    }
+    
+    return errors;
+}
+
+/**
+ * التحقق الشامل من النسخة الاحتياطية
+ */
+function validateBackupData(backupData) {
+    const errors = [];
+    const warnings = [];
+    
+    // التحقق من البنية الأساسية
+    if (!backupData) {
+        return {
+            valid: false,
+            errors: ['النسخة الاحتياطية فارغة أو غير صحيحة'],
+            warnings: []
+        };
+    }
+    
+    if (!backupData.data) {
+        errors.push('تنسيق النسخة الاحتياطية غير صحيح: حقل "data" مفقود');
+        return { valid: false, errors, warnings };
+    }
+    
+    // التحقق من وجود بيانات
+    const hasGroups = backupData.data.groups && backupData.data.groups.length > 0;
+    const hasAdkar = backupData.data.adkar && backupData.data.adkar.length > 0;
+    const hasCategories = backupData.data.categories && backupData.data.categories.length > 0;
+    
+    if (!hasGroups && !hasAdkar && !hasCategories) {
+        warnings.push('النسخة الاحتياطية لا تحتوي على أي بيانات (مجموعات، أذكار، أو فئات)');
+    }
+    
+    // التحقق من صحة الفئات
+    if (hasCategories) {
+        if (!Array.isArray(backupData.data.categories)) {
+            errors.push('حقل "categories" يجب أن يكون مصفوفة');
+        } else {
+            backupData.data.categories.forEach((category, index) => {
+                const categoryErrors = validateCategoryItem(category, index);
+                errors.push(...categoryErrors);
+            });
+        }
+    }
+    
+    // التحقق من صحة الأذكار
+    if (hasAdkar) {
+        if (!Array.isArray(backupData.data.adkar)) {
+            errors.push('حقل "adkar" يجب أن يكون مصفوفة');
+        } else {
+            backupData.data.adkar.forEach((adkar, index) => {
+                const adkarErrors = validateAdkarItem(adkar, index);
+                errors.push(...adkarErrors);
+            });
+        }
+    }
+    
+    // التحقق من صحة المجموعات
+    if (hasGroups) {
+        if (!Array.isArray(backupData.data.groups)) {
+            errors.push('حقل "groups" يجب أن يكون مصفوفة');
+        } else {
+            backupData.data.groups.forEach((group, index) => {
+                const groupErrors = validateGroupItem(group, index);
+                errors.push(...groupErrors);
+            });
+        }
+    }
+    
+    return {
+        valid: errors.length === 0,
+        errors,
+        warnings
+    };
+}
+
 // استعادة من نسخة احتياطية
 app.post('/api/restore', upload.single('backupFile'), (req, res) => {
     console.log('🔄 بدء استعادة النسخة الاحتياطية...');
     
     if (!req.file) {
-        res.status(400).json({ error: 'لم يتم رفع ملف النسخة الاحتياطية' });
+        res.status(400).json({ 
+            error: 'لم يتم رفع ملف النسخة الاحتياطية',
+            suggestion: 'يرجى اختيار ملف النسخة الاحتياطية والمحاولة مرة أخرى'
+        });
         return;
     }
     
     // التحقق من حجم الملف (حد أقصى 10MB)
     const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     if (req.file.size > MAX_FILE_SIZE) {
-        res.status(400).json({ error: 'حجم الملف كبير جداً. الحد الأقصى هو 10MB' });
+        res.status(400).json({ 
+            error: 'حجم الملف كبير جداً. الحد الأقصى هو 10MB',
+            suggestion: 'يرجى استخدام ملف نسخة احتياطية أصغر أو تقسيم البيانات'
+        });
         return;
     }
     
+    // التحقق من امتداد الملف
+    if (!req.file.originalname.toLowerCase().endsWith('.json')) {
+        res.status(400).json({ 
+            error: 'نوع الملف غير صحيح',
+            suggestion: 'يجب أن يكون الملف بصيغة JSON (ينتهي بـ .json)'
+        });
+        return;
+    }
+    
+    let backupData;
+    
     try {
-        // قراءة محتوى الملف
-        const backupData = JSON.parse(req.file.buffer.toString('utf8'));
+        // المرحلة 1: التحقق من صحة JSON
+        const fileContent = req.file.buffer.toString('utf8');
+        const jsonValidation = isValidJSON(fileContent);
         
-        if (!backupData.data) {
-            res.status(400).json({ error: 'تنسيق النسخة الاحتياطية غير صحيح' });
+        if (!jsonValidation.valid) {
+            console.error('❌ خطأ في تحليل JSON:', jsonValidation.details);
+            res.status(400).json({ 
+                error: jsonValidation.error,
+                details: jsonValidation.details,
+                suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف'
+            });
             return;
         }
+        
+        // قراءة محتوى الملف
+        backupData = JSON.parse(fileContent);
+        
+        // المرحلة 2: التحقق الشامل من البيانات
+        const validation = validateBackupData(backupData);
+        
+        if (!validation.valid) {
+            console.error('❌ فشل التحقق من النسخة الاحتياطية:');
+            validation.errors.forEach(err => console.error(`   - ${err}`));
+            
+            res.status(400).json({ 
+                error: 'النسخة الاحتياطية تحتوي على بيانات غير صحيحة',
+                validationErrors: validation.errors,
+                suggestion: 'يرجى التحقق من الأخطاء المذكورة وإصلاح ملف النسخة الاحتياطية'
+            });
+            return;
+        }
+        
+        // عرض التحذيرات إن وجدت
+        if (validation.warnings.length > 0) {
+            console.warn('⚠️  تحذيرات:');
+            validation.warnings.forEach(warn => console.warn(`   - ${warn}`));
+        }
+        
+        console.log('✅ التحقق من النسخة الاحتياطية نجح');
+        console.log(`   📊 المجموعات: ${backupData.data.groups?.length || 0}`);
+        console.log(`   📿 الأذكار: ${backupData.data.adkar?.length || 0}`);
+        console.log(`   🏷️ الفئات: ${backupData.data.categories?.length || 0}`);
         
         let restored = {
             groups: 0,
             adkar: 0,
             categories: 0
         };
+        
+        const restorationErrors = [];
         
         db.serialize(() => {
             // استعادة الفئات أولاً (إذا وجدت)
@@ -2490,9 +2745,15 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                     (id, name, description, icon, color, created_at) 
                     VALUES (?, ?, ?, ?, ?, ?)`);
                 
-                backupData.data.categories.forEach(cat => {
-                    catStmt.run([cat.id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
-                    restored.categories++;
+                backupData.data.categories.forEach((cat, index) => {
+                    try {
+                        catStmt.run([cat.id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
+                        restored.categories++;
+                    } catch (error) {
+                        const errorMsg = `فشل استعادة الفئة #${index + 1} (${cat.name}): ${error.message}`;
+                        console.error(`❌ ${errorMsg}`);
+                        restorationErrors.push(errorMsg);
+                    }
                 });
                 catStmt.finalize();
             }
@@ -2505,33 +2766,65 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                      is_active, priority, last_sent, created_at) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
                 
-                backupData.data.adkar.forEach(adkar => {
-                    // التوافق مع الأسماء القديمة والجديدة
-                    const content_type = adkar.content_type || adkar.type || 'text';
-                    const schedule_days = adkar.schedule_days || adkar.days_of_week || '[0,1,2,3,4,5,6]';
-                    const schedule_dates = adkar.schedule_dates || '[]';
-                    const schedule_months = adkar.schedule_months || '[]';
-                    
-                    adkarStmt.run([
-                        adkar.id, 
-                        adkar.category_id, 
-                        adkar.title || null, 
-                        adkar.content || null, 
-                        content_type,
-                        adkar.file_path, 
-                        adkar.file_url,
-                        adkar.youtube_url || null,
-                        adkar.schedule_type || 'daily', 
-                        schedule_days,
-                        schedule_dates,
-                        schedule_months,
-                        adkar.schedule_time || '12:00',
-                        adkar.is_active !== undefined ? adkar.is_active : 1, 
-                        adkar.priority || 1,
-                        adkar.last_sent,
-                        adkar.created_at
-                    ]);
-                    restored.adkar++;
+                backupData.data.adkar.forEach((adkar, index) => {
+                    try {
+                        // التوافق مع الأسماء القديمة والجديدة
+                        const content_type = adkar.content_type || adkar.type || 'text';
+                        
+                        // تطبيع مصفوفات JSON مع التحقق من الصحة
+                        let schedule_days = adkar.schedule_days || adkar.days_of_week || '[0,1,2,3,4,5,6]';
+                        if (typeof schedule_days !== 'string') {
+                            schedule_days = JSON.stringify(schedule_days);
+                        }
+                        // التحقق من صحة JSON
+                        const daysValidation = isValidJSONArray(schedule_days, 'schedule_days');
+                        if (!daysValidation.valid) {
+                            throw new Error(daysValidation.error);
+                        }
+                        
+                        let schedule_dates = adkar.schedule_dates || '[]';
+                        if (typeof schedule_dates !== 'string') {
+                            schedule_dates = JSON.stringify(schedule_dates);
+                        }
+                        const datesValidation = isValidJSONArray(schedule_dates, 'schedule_dates');
+                        if (!datesValidation.valid) {
+                            throw new Error(datesValidation.error);
+                        }
+                        
+                        let schedule_months = adkar.schedule_months || '[]';
+                        if (typeof schedule_months !== 'string') {
+                            schedule_months = JSON.stringify(schedule_months);
+                        }
+                        const monthsValidation = isValidJSONArray(schedule_months, 'schedule_months');
+                        if (!monthsValidation.valid) {
+                            throw new Error(monthsValidation.error);
+                        }
+                        
+                        adkarStmt.run([
+                            adkar.id, 
+                            adkar.category_id, 
+                            adkar.title || null, 
+                            adkar.content || null, 
+                            content_type,
+                            adkar.file_path, 
+                            adkar.file_url,
+                            adkar.youtube_url || null,
+                            adkar.schedule_type || 'daily', 
+                            schedule_days,
+                            schedule_dates,
+                            schedule_months,
+                            adkar.schedule_time || '12:00',
+                            adkar.is_active !== undefined ? adkar.is_active : 1, 
+                            adkar.priority || 1,
+                            adkar.last_sent,
+                            adkar.created_at
+                        ]);
+                        restored.adkar++;
+                    } catch (error) {
+                        const errorMsg = `فشل استعادة الذكر #${index + 1} (${adkar.title || 'بدون عنوان'}): ${error.message}`;
+                        console.error(`❌ ${errorMsg}`);
+                        restorationErrors.push(errorMsg);
+                    }
                 });
                 adkarStmt.finalize();
             }
@@ -2543,46 +2836,82 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                      is_protected, settings, created_at) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
                 
-                backupData.data.groups.forEach(group => {
-                    groupStmt.run([
-                        group.id, group.chat_id, group.title, group.admin_id,
-                        group.bot_enabled, group.is_active, group.is_protected,
-                        group.settings, group.created_at
-                    ]);
-                    restored.groups++;
+                backupData.data.groups.forEach((group, index) => {
+                    try {
+                        groupStmt.run([
+                            group.id, group.chat_id, group.title, group.admin_id,
+                            group.bot_enabled, group.is_active, group.is_protected,
+                            group.settings, group.created_at
+                        ]);
+                        restored.groups++;
+                    } catch (error) {
+                        const errorMsg = `فشل استعادة المجموعة #${index + 1} (${group.title}): ${error.message}`;
+                        console.error(`❌ ${errorMsg}`);
+                        restorationErrors.push(errorMsg);
+                    }
                 });
                 
                 // إرسال الاستجابة بعد اكتمال جميع العمليات
                 groupStmt.finalize(() => {
-                    res.json({ 
-                        success: true, 
-                        message: 'تم استعادة النسخة الاحتياطية بنجاح',
-                        restored: restored
-                    });
+                    const response = {
+                        success: restorationErrors.length === 0,
+                        message: restorationErrors.length === 0 
+                            ? 'تم استعادة النسخة الاحتياطية بنجاح' 
+                            : 'تمت استعادة النسخة الاحتياطية مع بعض الأخطاء',
+                        restored: restored,
+                        warnings: validation.warnings
+                    };
                     
-                    console.log('✅ تم استعادة النسخة الاحتياطية بنجاح');
+                    if (restorationErrors.length > 0) {
+                        response.errors = restorationErrors;
+                        response.suggestion = 'تم استعادة معظم البيانات، ولكن فشلت بعض العناصر. يرجى مراجعة الأخطاء أعلاه.';
+                    }
+                    
+                    res.json(response);
+                    
+                    console.log('✅ تمت عملية الاستعادة');
                     console.log(`   📊 المجموعات: ${restored.groups}`);
                     console.log(`   📿 الأذكار: ${restored.adkar}`);
                     console.log(`   🏷️ الفئات: ${restored.categories}`);
+                    if (restorationErrors.length > 0) {
+                        console.log(`   ⚠️  أخطاء: ${restorationErrors.length}`);
+                    }
                 });
             } else {
                 // إذا لم تكن هناك مجموعات، أرسل الاستجابة الآن
-                res.json({ 
-                    success: true, 
-                    message: 'تم استعادة النسخة الاحتياطية بنجاح',
-                    restored: restored
-                });
+                const response = {
+                    success: restorationErrors.length === 0,
+                    message: restorationErrors.length === 0 
+                        ? 'تم استعادة النسخة الاحتياطية بنجاح' 
+                        : 'تمت استعادة النسخة الاحتياطية مع بعض الأخطاء',
+                    restored: restored,
+                    warnings: validation.warnings
+                };
                 
-                console.log('✅ تم استعادة النسخة الاحتياطية بنجاح');
+                if (restorationErrors.length > 0) {
+                    response.errors = restorationErrors;
+                    response.suggestion = 'تم استعادة معظم البيانات، ولكن فشلت بعض العناصر. يرجى مراجعة الأخطاء أعلاه.';
+                }
+                
+                res.json(response);
+                
+                console.log('✅ تمت عملية الاستعادة');
                 console.log(`   📊 المجموعات: ${restored.groups}`);
                 console.log(`   📿 الأذكار: ${restored.adkar}`);
                 console.log(`   🏷️ الفئات: ${restored.categories}`);
+                if (restorationErrors.length > 0) {
+                    console.log(`   ⚠️  أخطاء: ${restorationErrors.length}`);
+                }
             }
         });
         
     } catch (error) {
         console.error('❌ خطأ في استعادة النسخة الاحتياطية:', error);
-        res.status(500).json({ error: 'خطأ في معالجة ملف النسخة الاحتياطية: ' + error.message });
+        res.status(500).json({ 
+            error: 'خطأ في معالجة ملف النسخة الاحتياطية',
+            details: error.message,
+            suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
+        });
     }
 });
 
