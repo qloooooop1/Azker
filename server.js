@@ -14,6 +14,7 @@ const schedule = require('node-schedule');
 // Backup versioning and validation modules
 const backupVersionManager = require('./lib/backup-version-manager');
 const backupValidator = require('./lib/backup-validator');
+const backupDiagnostic = require('./lib/backup-diagnostic');
 
 // ========== إعدادات التطبيق ==========
 const app = express();
@@ -2705,6 +2706,90 @@ function validateBackupData(backupData) {
     };
 }
 
+// نقطة نهاية لتشخيص النسخة الاحتياطية قبل الاستعادة
+app.post('/api/validate-backup', upload.single('backupFile'), (req, res) => {
+    console.log('🔍 بدء التحقق من صحة النسخة الاحتياطية...');
+    
+    if (!req.file) {
+        res.status(400).json({ 
+            error: 'لم يتم رفع ملف النسخة الاحتياطية',
+            suggestion: 'يرجى اختيار ملف النسخة الاحتياطية'
+        });
+        return;
+    }
+    
+    // التحقق من حجم الملف (حد أقصى 10MB)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (req.file.size > MAX_FILE_SIZE) {
+        res.status(400).json({ 
+            error: 'حجم الملف كبير جداً. الحد الأقصى هو 10MB',
+            suggestion: 'يرجى استخدام ملف نسخة احتياطية أصغر'
+        });
+        return;
+    }
+    
+    // التحقق من امتداد الملف
+    if (!req.file.originalname.toLowerCase().endsWith('.json')) {
+        res.status(400).json({ 
+            error: 'نوع الملف غير صحيح',
+            suggestion: 'يجب أن يكون الملف بصيغة JSON (ينتهي بـ .json)'
+        });
+        return;
+    }
+    
+    try {
+        // تحليل محتوى الملف
+        const fileContent = req.file.buffer.toString('utf8');
+        const jsonValidation = backupValidator.isValidJSON(fileContent);
+        
+        if (!jsonValidation.valid) {
+            res.status(400).json({ 
+                error: 'الملف لا يحتوي على JSON صحيح',
+                details: jsonValidation.details,
+                suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف'
+            });
+            return;
+        }
+        
+        const backupData = JSON.parse(fileContent);
+        
+        // تشخيص شامل للنسخة الاحتياطية
+        const diagnostic = backupDiagnostic.diagnoseBackup(backupData);
+        const report = diagnostic.getReport();
+        
+        // محاولة الإصلاح التلقائي إذا كانت هناك مشاكل
+        let repairResult = null;
+        if (!report.isHealthy && report.fixable) {
+            repairResult = backupDiagnostic.repairBackup(backupData);
+        }
+        
+        res.json({
+            valid: report.isHealthy,
+            diagnostic: report,
+            canBeRepaired: report.fixable && !report.isHealthy,
+            repair: repairResult ? {
+                success: repairResult.success,
+                log: repairResult.repairLog
+            } : null,
+            version: backupVersionManager.detectBackupVersion(backupData),
+            currentVersion: backupVersionManager.CURRENT_VERSION,
+            stats: {
+                categories: backupData.data?.categories?.length || 0,
+                adkar: backupData.data?.adkar?.length || 0,
+                groups: backupData.data?.groups?.length || 0
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ خطأ في التحقق من النسخة الاحتياطية:', error);
+        res.status(500).json({ 
+            error: 'خطأ في معالجة ملف النسخة الاحتياطية',
+            details: error.message,
+            suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
+        });
+    }
+});
+
 // استعادة من نسخة احتياطية
 app.post('/api/restore', upload.single('backupFile'), (req, res) => {
     console.log('🔄 بدء استعادة النسخة الاحتياطية...');
@@ -3503,9 +3588,14 @@ app.get('/admin', (req, res) => {
                                 <input type="file" class="form-control" id="backupFile" accept=".json">
                             </div>
                             
-                            <button class="btn btn-success btn-lg w-100" onclick="restoreBackup()">
-                                <i class="bi bi-upload"></i> استعادة النسخة الاحتياطية
-                            </button>
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-info" onclick="validateBackup()">
+                                    <i class="bi bi-check-circle"></i> التحقق من صحة النسخة الاحتياطية
+                                </button>
+                                <button class="btn btn-success btn-lg" onclick="restoreBackup()">
+                                    <i class="bi bi-upload"></i> استعادة النسخة الاحتياطية
+                                </button>
+                            </div>
                             
                             <div id="restoreStatus" class="mt-3"></div>
                         </div>
@@ -4539,6 +4629,121 @@ app.get('/admin', (req, res) => {
                 } catch (error) {
                     console.error('Error downloading backup:', error);
                     statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> خطأ: ' + error.message + '</div>';
+                }
+            }
+            
+            // التحقق من صحة النسخة الاحتياطية قبل الاستعادة
+            async function validateBackup() {
+                const fileInput = document.getElementById('backupFile');
+                const statusDiv = document.getElementById('restoreStatus');
+                
+                if (!fileInput.files || !fileInput.files[0]) {
+                    statusDiv.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> الرجاء اختيار ملف النسخة الاحتياطية أولاً</div>';
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                
+                // التحقق من نوع الملف
+                if (!file.name.endsWith('.json')) {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> يجب أن يكون الملف بصيغة JSON</div>';
+                    return;
+                }
+                
+                statusDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> جاري التحقق من صحة النسخة الاحتياطية...</div>';
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('backupFile', file);
+                    
+                    const response = await fetch('/api/validate-backup', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (!response.ok) {
+                        statusDiv.innerHTML = '<div class="alert alert-danger">' +
+                            '<h6><i class="bi bi-x-circle"></i> خطأ في التحقق من النسخة الاحتياطية</h6>' +
+                            '<p class="mb-1"><strong>الخطأ:</strong> ' + result.error + '</p>' +
+                            (result.details ? '<p class="mb-1"><strong>التفاصيل:</strong> ' + result.details + '</p>' : '') +
+                            (result.suggestion ? '<p class="mb-0"><strong>الحل المقترح:</strong> ' + result.suggestion + '</p>' : '') +
+                        '</div>';
+                        return;
+                    }
+                    
+                    // عرض نتائج التشخيص
+                    let html = '';
+                    
+                    if (result.valid) {
+                        html = '<div class="alert alert-success">' +
+                            '<h6><i class="bi bi-check-circle"></i> النسخة الاحتياطية صالحة!</h6>' +
+                            '<p class="mb-2">الملف يمكن استعادته بنجاح</p>' +
+                            '<ul class="mb-0">' +
+                                '<li>الإصدار: ' + result.version + '</li>' +
+                                '<li>الفئات: ' + result.stats.categories + '</li>' +
+                                '<li>الأذكار: ' + result.stats.adkar + '</li>' +
+                                '<li>المجموعات: ' + result.stats.groups + '</li>' +
+                            '</ul>' +
+                        '</div>';
+                    } else {
+                        const summary = result.diagnostic.summary;
+                        const severity = summary.critical > 0 ? 'danger' : (summary.errors > 0 ? 'warning' : 'info');
+                        
+                        html = '<div class="alert alert-' + severity + '">' +
+                            '<h6><i class="bi bi-exclamation-triangle"></i> تم العثور على مشاكل في النسخة الاحتياطية</h6>' +
+                            '<p class="mb-2">ملخص التشخيص:</p>' +
+                            '<ul class="mb-2">' +
+                                '<li>أخطاء حرجة: ' + summary.critical + '</li>' +
+                                '<li>أخطاء: ' + summary.errors + '</li>' +
+                                '<li>تحذيرات: ' + summary.warnings + '</li>' +
+                            '</ul>';
+                        
+                        if (result.canBeRepaired && result.repair && result.repair.success) {
+                            html += '<p class="mb-2"><strong><i class="bi bi-wrench"></i> تم تطبيق إصلاحات تلقائية:</strong></p>' +
+                                '<ul class="mb-0 small">';
+                            result.repair.log.forEach(log => {
+                                html += '<li>' + log + '</li>';
+                            });
+                            html += '</ul>' +
+                                '<p class="mt-2 mb-0"><strong>يمكنك الآن محاولة الاستعادة</strong></p>';
+                        } else if (!result.diagnostic.fixable) {
+                            html += '<p class="mb-0 text-danger"><strong>⚠️ الملف يحتوي على أخطاء حرجة لا يمكن إصلاحها تلقائياً</strong></p>';
+                        }
+                        
+                        html += '</div>';
+                        
+                        // عرض تفاصيل المشاكل
+                        if (result.diagnostic.issues && result.diagnostic.issues.length > 0) {
+                            html += '<div class="alert alert-light mt-2">' +
+                                '<h6>تفاصيل المشاكل:</h6>' +
+                                '<ul class="mb-0 small">';
+                            
+                            result.diagnostic.issues.slice(0, 10).forEach(issue => {
+                                const icon = issue.severity === 'critical' ? '🚨' : 
+                                            issue.severity === 'error' ? '❌' : 
+                                            issue.severity === 'warning' ? '⚠️' : 'ℹ️';
+                                html += '<li>' + icon + ' ' + issue.message;
+                                if (issue.suggestion) {
+                                    html += '<br><small class="text-muted">💡 ' + issue.suggestion + '</small>';
+                                }
+                                html += '</li>';
+                            });
+                            
+                            if (result.diagnostic.issues.length > 10) {
+                                html += '<li><em>... و ' + (result.diagnostic.issues.length - 10) + ' مشكلة أخرى</em></li>';
+                            }
+                            
+                            html += '</ul></div>';
+                        }
+                    }
+                    
+                    statusDiv.innerHTML = html;
+                    
+                } catch (error) {
+                    console.error('Error validating backup:', error);
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> خطأ في التحقق من النسخة الاحتياطية: ' + error.message + '</div>';
                 }
             }
             
