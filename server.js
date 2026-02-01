@@ -951,14 +951,14 @@ function extractUrl(text) {
     // إزالة المسافات من البداية والنهاية
     text = text.trim();
     
-    // البحث عن رابط URL في النص
-    const urlRegex = /(https?:\/\/[^\s]+)/i;
+    // البحث عن رابط URL في النص - استثناء الأحرف التي لا تكون جزءاً من الرابط
+    const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/i;
     const match = text.match(urlRegex);
     
     if (match) {
         // استخراج الرابط وإزالة أي علامات ترقيم في النهاية
         let url = match[1];
-        url = url.replace(/[.,;:!?)]+$/, '');
+        url = url.replace(/[.,;:!?()\[\]]+$/, '');
         return url;
     }
     
@@ -3223,7 +3223,7 @@ app.get('/admin', (req, res) => {
                                     <div class="mb-3" id="youtubeInputSection" style="display: none;">
                                         <label class="form-label">رابط يوتيوب أو فيديو</label>
                                         <input type="url" class="form-control" id="adkarYoutubeUrl" placeholder="https://www.youtube.com/watch?v=...">
-                                        <small class="text-muted">أدخل رابط يوتيوب أو فيديو مباشر (لا تضف نص إضافي)</small>
+                                        <small class="text-muted">الصق الرابط مباشرة - سيتم استخراج الرابط تلقائياً من أي نص إضافي</small>
                                     </div>
                                     
                                     <div id="filePreview" style="display: none;">
@@ -3833,6 +3833,7 @@ app.get('/admin', (req, res) => {
                 const urlSection = document.getElementById('urlInputSection');
                 const youtubeSection = document.getElementById('youtubeInputSection');
                 const previewSection = document.getElementById('filePreview');
+                const fileInput = document.getElementById('adkarFile');
                 
                 if (contentType === 'text') {
                     fileSection.style.display = 'none';
@@ -3844,8 +3845,6 @@ app.get('/admin', (req, res) => {
                     fileSection.style.display = 'block';
                     urlSection.style.display = 'none';
                     youtubeSection.style.display = 'block';
-                    
-                    const fileInput = document.getElementById('adkarFile');
                     fileInput.accept = 'video/*';
                 } else {
                     fileSection.style.display = 'block';
@@ -3853,7 +3852,6 @@ app.get('/admin', (req, res) => {
                     youtubeSection.style.display = 'none';
                     
                     // تحديث قبول الملفات حسب النوع
-                    const fileInput = document.getElementById('adkarFile');
                     if (contentType === 'audio') {
                         fileInput.accept = 'audio/*';
                     } else if (contentType === 'image') {
