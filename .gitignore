@@ -17,3 +17,4 @@ data/
 uploads/
 # Test files
 test-*.js
+test-youtube-urls.js
