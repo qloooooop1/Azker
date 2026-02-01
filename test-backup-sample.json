@@ -1,0 +1,96 @@
+{
+  "version": "3.0.0",
+  "timestamp": "2026-02-01T17:00:00.000Z",
+  "data": {
+    "categories": [
+      {
+        "id": 1,
+        "name": "أذكار الصباح",
+        "description": "أذكار الصباح والاستيقاظ",
+        "icon": "🌅",
+        "color": "#FFD700",
+        "created_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "id": 2,
+        "name": "أذكار المساء",
+        "description": "أذكار المساء والنوم",
+        "icon": "🌙",
+        "color": "#4169E1",
+        "created_at": "2026-01-01T08:00:00.000Z"
+      }
+    ],
+    "adkar": [
+      {
+        "id": 1,
+        "category_id": 1,
+        "title": "أذكار الصباح - 1",
+        "content": "أَصْبَحْنَا وَأَصْبَحَ الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ",
+        "content_type": "text",
+        "file_path": null,
+        "file_url": null,
+        "youtube_url": null,
+        "schedule_type": "daily",
+        "schedule_days": [0, 1, 2, 3, 4, 5, 6],
+        "schedule_dates": [],
+        "schedule_months": [],
+        "schedule_time": "06:00",
+        "is_active": 1,
+        "priority": 1,
+        "last_sent": null,
+        "created_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "id": 2,
+        "category_id": 2,
+        "title": "أذكار المساء - 1",
+        "content": "أَمْسَيْنَا وَأَمْسَى الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ",
+        "content_type": "text",
+        "file_path": null,
+        "file_url": null,
+        "youtube_url": null,
+        "schedule_type": "daily",
+        "schedule_days": "[0,1,2,3,4,5,6]",
+        "schedule_dates": "[]",
+        "schedule_months": "[]",
+        "schedule_time": "18:00",
+        "is_active": 1,
+        "priority": 1,
+        "last_sent": null,
+        "created_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "id": 3,
+        "category_id": 1,
+        "title": "فيديو يوتيوب - تلاوة قرآن",
+        "content": null,
+        "content_type": "video",
+        "file_path": null,
+        "file_url": null,
+        "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "schedule_type": "weekly",
+        "schedule_days": [5],
+        "schedule_dates": [],
+        "schedule_months": [],
+        "schedule_time": "09:00",
+        "is_active": 1,
+        "priority": 2,
+        "last_sent": null,
+        "created_at": "2026-01-15T10:00:00.000Z"
+      }
+    ],
+    "groups": [
+      {
+        "id": 1,
+        "chat_id": "-1001234567890",
+        "title": "مجموعة الأذكار الرئيسية",
+        "admin_id": "123456789",
+        "bot_enabled": 1,
+        "is_active": 1,
+        "is_protected": 1,
+        "settings": "{}",
+        "created_at": "2026-01-01T08:00:00.000Z"
+      }
+    ]
+  }
+}

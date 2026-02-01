@@ -168,6 +168,51 @@
                     </button>
                 </div>
             </div>
+
+            <!-- قسم الإعدادات -->
+            <div id="settings" class="d-none">
+                <h2><i class="fas fa-cog"></i> الإعدادات</h2>
+                
+                <!-- النسخ الاحتياطي والاستعادة -->
+                <div class="stat-card">
+                    <h5><i class="fas fa-database"></i> النسخ الاحتياطي والاستعادة</h5>
+                    <hr>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <h6>إنشاء نسخة احتياطية</h6>
+                                <p class="text-muted">قم بإنشاء نسخة احتياطية من جميع البيانات (المجموعات، الأذكار، الفئات)</p>
+                                <button onclick="createBackup()" class="btn btn-success">
+                                    <i class="fas fa-download"></i> إنشاء وتحميل نسخة احتياطية
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <h6>استعادة نسخة احتياطية</h6>
+                                <p class="text-muted">اختر ملف نسخة احتياطية (JSON) لاستعادة البيانات</p>
+                                <form id="restoreForm" enctype="multipart/form-data">
+                                    <div class="input-group mb-2">
+                                        <input type="file" id="backupFile" name="backupFile" class="form-control" accept=".json" required>
+                                        <button type="button" onclick="restoreBackup()" class="btn btn-primary">
+                                            <i class="fas fa-upload"></i> استعادة
+                                        </button>
+                                    </div>
+                                    <small class="text-muted">الحد الأقصى لحجم الملف: 10MB</small>
+                                </form>
+                                <div id="restoreProgress" class="mt-2" style="display:none;">
+                                    <div class="progress">
+                                        <div id="restoreProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <small id="restoreStatus" class="text-muted"></small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -353,8 +398,10 @@
                         <td>${index + 1}</td>
                         <td>${item.title}</td>
                         <td>
-                            ${item.type === 'audio' ? '<span class="badge bg-info">صوت</span>' : 
-                              item.type === 'pdf' ? '<span class="badge bg-warning">PDF</span>' : 
+                            ${item.content_type === 'audio' ? '<span class="badge bg-info">صوت</span>' : 
+                              item.content_type === 'video' ? '<span class="badge bg-success">فيديو</span>' :
+                              item.content_type === 'image' ? '<span class="badge bg-warning">صورة</span>' :
+                              item.content_type === 'pdf' ? '<span class="badge bg-danger">PDF</span>' : 
                               '<span class="badge bg-primary">نص</span>'}
                         </td>
                         <td>${item.schedule_time || 'يومي'}</td>
@@ -534,6 +581,147 @@
             } catch (error) {
                 console.error('Error deleting group:', error);
                 alert('حدث خطأ أثناء حذف المجموعة');
+            }
+        }
+
+        // وظائف النسخ الاحتياطي والاستعادة
+        async function createBackup() {
+            try {
+                const res = await fetch('/api/backup', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+                    a.download = `azkar-backup-${timestamp}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    alert('✅ تم إنشاء النسخة الاحتياطية بنجاح');
+                } else {
+                    const data = await res.json();
+                    alert('❌ حدث خطأ: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                console.error('Error creating backup:', error);
+                alert('❌ حدث خطأ أثناء إنشاء النسخة الاحتياطية');
+            }
+        }
+
+        async function restoreBackup() {
+            const fileInput = document.getElementById('backupFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('⚠️ يرجى اختيار ملف النسخة الاحتياطية');
+                return;
+            }
+            
+            if (!file.name.toLowerCase().endsWith('.json')) {
+                alert('⚠️ يجب أن يكون الملف بصيغة JSON');
+                return;
+            }
+            
+            // التحقق من حجم الملف (10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                alert('⚠️ حجم الملف كبير جداً. الحد الأقصى هو 10MB');
+                return;
+            }
+            
+            if (!confirm('⚠️ سيتم استبدال جميع البيانات الحالية. هل أنت متأكد؟')) {
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('backupFile', file);
+            
+            // عرض شريط التقدم
+            const progressDiv = document.getElementById('restoreProgress');
+            const progressBar = document.getElementById('restoreProgressBar');
+            const statusText = document.getElementById('restoreStatus');
+            
+            progressDiv.style.display = 'block';
+            progressBar.style.width = '30%';
+            statusText.textContent = 'جاري قراءة الملف...';
+            
+            try {
+                progressBar.style.width = '50%';
+                statusText.textContent = 'جاري التحقق من البيانات...';
+                
+                const res = await fetch('/api/restore', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                
+                progressBar.style.width = '90%';
+                statusText.textContent = 'جاري معالجة النتائج...';
+                
+                const data = await res.json();
+                
+                progressBar.style.width = '100%';
+                
+                if (res.ok && data.success) {
+                    statusText.textContent = 'تمت الاستعادة بنجاح!';
+                    
+                    let message = '✅ تمت استعادة النسخة الاحتياطية بنجاح!\n\n';
+                    message += `📊 الإحصائيات:\n`;
+                    message += `- المجموعات: ${data.restored.groups || 0}\n`;
+                    message += `- الأذكار: ${data.restored.adkar || 0}\n`;
+                    message += `- الفئات: ${data.restored.categories || 0}`;
+                    
+                    if (data.errors && data.errors.length > 0) {
+                        message += '\n\n⚠️ تحذيرات:\n';
+                        data.errors.slice(0, 3).forEach(err => {
+                            message += `- ${err}\n`;
+                        });
+                        if (data.errors.length > 3) {
+                            message += `... و ${data.errors.length - 3} تحذيرات أخرى`;
+                        }
+                    }
+                    
+                    alert(message);
+                    
+                    // إعادة تحميل البيانات
+                    loadStats();
+                    loadAdkar();
+                    loadGroups();
+                    
+                    // إخفاء شريط التقدم بعد 2 ثانية
+                    setTimeout(() => {
+                        progressDiv.style.display = 'none';
+                        progressBar.style.width = '0%';
+                        fileInput.value = '';
+                    }, 2000);
+                } else {
+                    progressDiv.style.display = 'none';
+                    
+                    let errorMsg = '❌ فشلت استعادة النسخة الاحتياطية:\n\n';
+                    errorMsg += data.error || 'خطأ غير معروف';
+                    
+                    if (data.validationErrors && data.validationErrors.length > 0) {
+                        errorMsg += '\n\nأخطاء التحقق:\n';
+                        data.validationErrors.slice(0, 5).forEach(err => {
+                            errorMsg += `- ${err}\n`;
+                        });
+                    }
+                    
+                    if (data.suggestion) {
+                        errorMsg += '\n\n💡 اقتراح: ' + data.suggestion;
+                    }
+                    
+                    alert(errorMsg);
+                }
+            } catch (error) {
+                progressDiv.style.display = 'none';
+                console.error('Error restoring backup:', error);
+                alert('❌ حدث خطأ أثناء استعادة النسخة الاحتياطية:\n' + error.message);
             }
         }
 
