@@ -663,7 +663,23 @@
                 progressBar.style.width = '90%';
                 statusText.textContent = 'جاري معالجة النتائج...';
                 
-                const data = await res.json();
+                // Check if response is JSON
+                const contentType = res.headers.get('content-type');
+                let data;
+                
+                if (contentType && contentType.includes('application/json')) {
+                    try {
+                        data = await res.json();
+                    } catch (jsonError) {
+                        console.error('JSON parsing error:', jsonError);
+                        throw new Error('تلقينا استجابة غير صحيحة من الخادم (JSON غير صالح)');
+                    }
+                } else {
+                    // Non-JSON response (possibly HTML error page)
+                    const text = await res.text();
+                    console.error('Non-JSON response:', text);
+                    throw new Error('تلقينا استجابة غير متوقعة من الخادم. يرجى التحقق من سجلات الخادم.');
+                }
                 
                 progressBar.style.width = '100%';
                 
@@ -705,10 +721,14 @@
                     let errorMsg = '❌ فشلت استعادة النسخة الاحتياطية:\n\n';
                     errorMsg += data.error || 'خطأ غير معروف';
                     
+                    if (data.details) {
+                        errorMsg += '\n\nتفاصيل: ' + data.details;
+                    }
+                    
                     if (data.validationErrors && data.validationErrors.length > 0) {
                         errorMsg += '\n\nأخطاء التحقق:\n';
                         data.validationErrors.slice(0, 5).forEach(err => {
-                            errorMsg += `- ${err}\n`;
+                            errorMsg += `- ${err.message || err}\n`;
                         });
                     }
                     
@@ -721,7 +741,7 @@
             } catch (error) {
                 progressDiv.style.display = 'none';
                 console.error('Error restoring backup:', error);
-                alert('❌ حدث خطأ أثناء استعادة النسخة الاحتياطية:\n' + error.message);
+                alert('❌ حدث خطأ أثناء استعادة النسخة الاحتياطية:\n\n' + error.message + '\n\nيرجى التحقق من:\n- صحة ملف JSON\n- اتصال الشبكة\n- سجلات الخادم');
             }
         }
 
