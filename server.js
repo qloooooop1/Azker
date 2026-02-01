@@ -2113,7 +2113,7 @@ app.post('/api/adkar', upload.fields([
             is_active, priority
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                category_id || null, title || '', content || '', final_content_type, file_path, file_url || null, final_youtube_url,
+                category_id || null, title || null, content || null, final_content_type, file_path, file_url || null, final_youtube_url,
                 schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time || '12:00',
                 is_active, priority
             ],
@@ -2471,8 +2471,8 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                     adkarStmt.run([
                         adkar.id, 
                         adkar.category_id, 
-                        adkar.title || '', 
-                        adkar.content || '', 
+                        adkar.title || null, 
+                        adkar.content || null, 
                         content_type,
                         adkar.file_path, 
                         adkar.file_url,
