@@ -33,6 +33,126 @@
             border-radius: 10px;
             box-shadow: 0 5px 20px rgba(0,0,0,0.1);
         }
+        
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            max-width: 500px;
+            width: 90%;
+        }
+        .toast {
+            margin-bottom: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .toast.show {
+            display: block;
+            animation: slideDown 0.3s ease-out;
+        }
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Backup Preview Modal */
+        .backup-preview {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .backup-preview-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .backup-preview-item:last-child {
+            border-bottom: none;
+        }
+        .backup-preview-label {
+            font-weight: 600;
+            color: #495057;
+        }
+        .backup-preview-value {
+            color: #212529;
+        }
+        
+        /* Drag and Drop Area */
+        .drop-area {
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            background: #f8f9fa;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .drop-area.dragover {
+            background: #e7f3ff;
+            border-color: #0d6efd;
+        }
+        .drop-area:hover {
+            background: #e7f3ff;
+        }
+        .drop-area i {
+            font-size: 48px;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        /* Progress Steps */
+        .progress-steps {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            position: relative;
+        }
+        .progress-step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+        .progress-step-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e9ecef;
+            color: #6c757d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 10px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .progress-step.active .progress-step-circle {
+            background: #667eea;
+            color: white;
+        }
+        .progress-step.completed .progress-step-circle {
+            background: #28a745;
+            color: white;
+        }
+        .progress-step-label {
+            font-size: 12px;
+            color: #6c757d;
+        }
+        .progress-step.active .progress-step-label {
+            color: #667eea;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -53,6 +173,9 @@
 
     <!-- لوحة التحكم الرئيسية -->
     <div id="dashboard" class="d-none">
+        <!-- Toast Notification Container -->
+        <div class="toast-container" id="toastContainer"></div>
+        
         <div class="sidebar">
             <div class="p-3 text-center">
                 <h4><i class="fas fa-crown"></i> لوحة المطور</h4>
@@ -175,14 +298,17 @@
                 
                 <!-- النسخ الاحتياطي والاستعادة -->
                 <div class="stat-card">
-                    <h5><i class="fas fa-database"></i> النسخ الاحتياطي والاستعادة</h5>
+                    <h5><i class="fas fa-database"></i> النسخ الاحتياطي والاستعادة المحسّن</h5>
                     <hr>
                     
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <h6>إنشاء نسخة احتياطية</h6>
-                                <p class="text-muted">قم بإنشاء نسخة احتياطية من جميع البيانات (المجموعات، الأذكار، الفئات)</p>
+                                <h6><i class="fas fa-save"></i> إنشاء نسخة احتياطية</h6>
+                                <p class="text-muted">قم بإنشاء نسخة احتياطية مع معلومات مفصلة وتحقق من السلامة</p>
+                                <div class="mb-2">
+                                    <input type="text" id="backupDescription" class="form-control" placeholder="وصف اختياري للنسخة الاحتياطية (مثل: قبل التحديث)">
+                                </div>
                                 <button onclick="createBackup()" class="btn btn-success">
                                     <i class="fas fa-download"></i> إنشاء وتحميل نسخة احتياطية
                                 </button>
@@ -191,15 +317,63 @@
                         
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <h6>استعادة نسخة احتياطية</h6>
-                                <p class="text-muted">اختر ملف نسخة احتياطية (JSON) لاستعادة البيانات</p>
-                                <form id="restoreForm" enctype="multipart/form-data">
-                                    <div class="input-group mb-2">
-                                        <input type="file" id="backupFile" name="backupFile" class="form-control" accept=".json" required>
-                                        <button type="button" onclick="restoreBackup()" class="btn btn-primary">
-                                            <i class="fas fa-upload"></i> استعادة
-                                        </button>
+                                <h6><i class="fas fa-upload"></i> استعادة نسخة احتياطية</h6>
+                                <p class="text-muted">اسحب وأفلت ملف JSON أو اختره للمعاينة والاستعادة</p>
+                                
+                                <!-- Drop Area -->
+                                <div class="drop-area" id="dropArea" onclick="document.getElementById('backupFile').click()">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                    <p class="mb-0"><strong>اسحب الملف هنا</strong></p>
+                                    <p class="text-muted small">أو انقر للاختيار (JSON فقط، حد أقصى 10MB)</p>
+                                </div>
+                                
+                                <form id="restoreForm" enctype="multipart/form-data" style="display:none;">
+                                    <input type="file" id="backupFile" name="backupFile" class="form-control" accept=".json" required onchange="previewBackup()">
+                                </form>
+                                
+                                <!-- Backup Preview -->
+                                <div id="backupPreview" class="mt-3" style="display:none;">
+                                    <div class="backup-preview">
+                                        <h6 class="mb-3"><i class="fas fa-eye"></i> معاينة النسخة الاحتياطية</h6>
+                                        <div id="previewContent"></div>
+                                        <div class="mt-3 d-flex gap-2">
+                                            <button type="button" onclick="confirmRestore()" class="btn btn-primary">
+                                                <i class="fas fa-check"></i> تأكيد الاستعادة
+                                            </button>
+                                            <button type="button" onclick="cancelPreview()" class="btn btn-secondary">
+                                                <i class="fas fa-times"></i> إلغاء
+                                            </button>
+                                        </div>
                                     </div>
+                                </div>
+                                
+                                <!-- Progress Steps -->
+                                <div id="restoreSteps" class="mt-3" style="display:none;">
+                                    <div class="progress-steps">
+                                        <div class="progress-step" id="step1">
+                                            <div class="progress-step-circle">1</div>
+                                            <div class="progress-step-label">اختيار الملف</div>
+                                        </div>
+                                        <div class="progress-step" id="step2">
+                                            <div class="progress-step-circle">2</div>
+                                            <div class="progress-step-label">التحقق</div>
+                                        </div>
+                                        <div class="progress-step" id="step3">
+                                            <div class="progress-step-circle">3</div>
+                                            <div class="progress-step-label">الاستعادة</div>
+                                        </div>
+                                        <div class="progress-step" id="step4">
+                                            <div class="progress-step-circle">4</div>
+                                            <div class="progress-step-label">اكتمل</div>
+                                        </div>
+                                    </div>
+                                    <div class="progress">
+                                        <div id="restoreProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <small id="restoreStatus" class="text-muted d-block mt-2"></small>
+                                </div>
+                            </div>
+                        </div>
                                     <small class="text-muted">الحد الأقصى لحجم الملف: 10MB</small>
                                 </form>
                                 <div id="restoreProgress" class="mt-2" style="display:none;">
