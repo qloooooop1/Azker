@@ -944,6 +944,32 @@ function extractYouTubeVideoId(url) {
     return null;
 }
 
+// دالة لاستخراج الرابط المباشر من النص (إزالة أي نص إضافي)
+function extractUrl(text) {
+    if (!text) return null;
+    
+    // إزالة المسافات من البداية والنهاية
+    text = text.trim();
+    
+    // البحث عن رابط URL في النص
+    const urlRegex = /(https?:\/\/[^\s]+)/i;
+    const match = text.match(urlRegex);
+    
+    if (match) {
+        // استخراج الرابط وإزالة أي علامات ترقيم في النهاية
+        let url = match[1];
+        url = url.replace(/[.,;:!?)]+$/, '');
+        return url;
+    }
+    
+    // إذا كان النص كله رابط صحيح
+    if (text.startsWith('http://') || text.startsWith('https://')) {
+        return text;
+    }
+    
+    return null;
+}
+
 function shouldSendToday(adkar) {
     const now = moment();
     const currentDay = now.day(); // 0-6
@@ -2054,13 +2080,17 @@ app.post('/api/adkar', upload.fields([
             }
         }
         
+        // تنظيف واستخراج الروابط المباشرة (إزالة النصوص الإضافية)
+        let clean_file_url = file_url ? extractUrl(file_url) : null;
+        let clean_youtube_url = youtube_url ? extractUrl(youtube_url) : null;
+        
         let file_path = null;
         let final_content_type = content_type;
-        let final_youtube_url = youtube_url || null;
+        let final_youtube_url = clean_youtube_url || null;
         
         // معالجة روابط YouTube
-        if (youtube_url || (file_url && isYouTubeUrl(file_url))) {
-            final_youtube_url = youtube_url || file_url;
+        if (clean_youtube_url || (clean_file_url && isYouTubeUrl(clean_file_url))) {
+            final_youtube_url = clean_youtube_url || clean_file_url;
             final_content_type = 'video';
             // استخراج معرف الفيديو من رابط YouTube
             const videoId = extractYouTubeVideoId(final_youtube_url);
@@ -2072,8 +2102,8 @@ app.post('/api/adkar', upload.fields([
             }
         }
         // تحميل من رابط إذا وجد ولم يكن YouTube
-        else if (file_url && file_url.startsWith('http')) {
-            file_path = await downloadFileFromUrl(file_url, content_type);
+        else if (clean_file_url && clean_file_url.startsWith('http')) {
+            file_path = await downloadFileFromUrl(clean_file_url, content_type);
         }
         
         // إذا لم يكن هناك رابط، تحقق من الملفات المرفوعة
@@ -2119,7 +2149,7 @@ app.post('/api/adkar', upload.fields([
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 category_id || null, title || null, content || null, final_content_type, 
-                file_path || null, file_url || null, final_youtube_url || null,
+                file_path || null, clean_file_url || null, final_youtube_url || null,
                 schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time || '12:00',
                 is_active, priority
             ],
@@ -2167,6 +2197,14 @@ app.put('/api/adkar/:id', upload.fields([
                     details: { schedule_time: updates.schedule_time }
                 });
             }
+        }
+        
+        // تنظيف واستخراج الروابط المباشرة (إزالة النصوص الإضافية)
+        if (updates.file_url) {
+            updates.file_url = extractUrl(updates.file_url);
+        }
+        if (updates.youtube_url) {
+            updates.youtube_url = extractUrl(updates.youtube_url);
         }
         
         let file_path = null;
@@ -3163,6 +3201,7 @@ app.get('/admin', (req, res) => {
                                                     <option value="text">نص فقط</option>
                                                     <option value="audio">صوت</option>
                                                     <option value="image">صورة</option>
+                                                    <option value="video">فيديو/يوتيوب</option>
                                                     <option value="pdf">ملف PDF</option>
                                                 </select>
                                             </div>
@@ -3179,6 +3218,12 @@ app.get('/admin', (req, res) => {
                                         <label class="form-label">أو رابط مباشر للملف</label>
                                         <input type="url" class="form-control" id="adkarFileUrl" placeholder="https://example.com/file.mp3">
                                         <small class="text-muted">أدخل رابط مباشر للملف (MP3, JPG, PNG, PDF)</small>
+                                    </div>
+                                    
+                                    <div class="mb-3" id="youtubeInputSection" style="display: none;">
+                                        <label class="form-label">رابط يوتيوب أو فيديو</label>
+                                        <input type="url" class="form-control" id="adkarYoutubeUrl" placeholder="https://www.youtube.com/watch?v=...">
+                                        <small class="text-muted">أدخل رابط يوتيوب أو فيديو مباشر (لا تضف نص إضافي)</small>
                                     </div>
                                     
                                     <div id="filePreview" style="display: none;">
@@ -3421,6 +3466,7 @@ app.get('/admin', (req, res) => {
                         let typeIcon = '📝';
                         if (item.content_type === 'audio') typeIcon = '🎵';
                         else if (item.content_type === 'image') typeIcon = '🖼️';
+                        else if (item.content_type === 'video') typeIcon = '🎥';
                         else if (item.content_type === 'pdf') typeIcon = '📄';
                         
                         // تحديد نص الجدولة
@@ -3710,6 +3756,7 @@ app.get('/admin', (req, res) => {
                             document.getElementById('adkarPriority').value = adkar.priority || 1;
                             document.getElementById('adkarActive').value = adkar.is_active || 1;
                             document.getElementById('adkarFileUrl').value = adkar.file_url || '';
+                            document.getElementById('adkarYoutubeUrl').value = adkar.youtube_url || '';
                             
                             // تعبئة أيام الأسبوع
                             const days = adkar.schedule_days || [];
@@ -3762,6 +3809,7 @@ app.get('/admin', (req, res) => {
                     document.getElementById('adkarPriority').value = '1';
                     document.getElementById('adkarActive').value = '1';
                     document.getElementById('adkarFileUrl').value = '';
+                    document.getElementById('adkarYoutubeUrl').value = '';
                     
                     // إعادة تعيين جميع الأزرار
                     document.querySelectorAll('.day-btn, .date-btn, .month-btn').forEach(btn => {
@@ -3783,15 +3831,26 @@ app.get('/admin', (req, res) => {
                 const contentType = document.getElementById('adkarContentType').value;
                 const fileSection = document.getElementById('fileInputSection');
                 const urlSection = document.getElementById('urlInputSection');
+                const youtubeSection = document.getElementById('youtubeInputSection');
                 const previewSection = document.getElementById('filePreview');
                 
                 if (contentType === 'text') {
                     fileSection.style.display = 'none';
                     urlSection.style.display = 'none';
+                    youtubeSection.style.display = 'none';
                     previewSection.style.display = 'none';
+                } else if (contentType === 'video') {
+                    // عرض خيار الفيديو المباشر أو يوتيوب فقط
+                    fileSection.style.display = 'block';
+                    urlSection.style.display = 'none';
+                    youtubeSection.style.display = 'block';
+                    
+                    const fileInput = document.getElementById('adkarFile');
+                    fileInput.accept = 'video/*';
                 } else {
                     fileSection.style.display = 'block';
                     urlSection.style.display = 'block';
+                    youtubeSection.style.display = 'none';
                     
                     // تحديث قبول الملفات حسب النوع
                     const fileInput = document.getElementById('adkarFile');
@@ -3868,6 +3927,7 @@ app.get('/admin', (req, res) => {
                 formData.append('schedule_months', document.getElementById('selectedMonths').value);
                 formData.append('schedule_time', document.getElementById('adkarTime').value);
                 formData.append('file_url', document.getElementById('adkarFileUrl').value);
+                formData.append('youtube_url', document.getElementById('adkarYoutubeUrl').value);
                 formData.append('priority', document.getElementById('adkarPriority').value);
                 formData.append('is_active', document.getElementById('adkarActive').value);
                 
