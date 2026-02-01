@@ -2419,6 +2419,8 @@ app.get('/api/backup', (req, res) => {
         }
         
         // تطبيع بيانات المجموعات
+        // Note: Telegram IDs are well within JavaScript's safe integer range (±9 quadrillion)
+        // Max Telegram ID is ~10 billion, so parseInt() is safe without precision loss
         backup.data.groups = groups.map(group => ({
             ...group,
             // التأكد من أن الأرقام هي أرقام وليست نصوص
@@ -2894,6 +2896,7 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                 backupData.data.groups.forEach((group, index) => {
                     try {
                         // التأكد من تحويل القيم الرقمية بشكل صحيح
+                        // Note: Telegram IDs are within safe integer range, parseInt() is safe
                         const id = typeof group.id === 'string' ? parseInt(group.id) : group.id;
                         const chat_id = typeof group.chat_id === 'string' ? parseInt(group.chat_id) : group.chat_id;
                         const admin_id = group.admin_id ? (typeof group.admin_id === 'string' ? parseInt(group.admin_id) : group.admin_id) : null;
