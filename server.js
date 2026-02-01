@@ -2406,7 +2406,7 @@ app.get('/api/backup', (req, res) => {
     
     const backup = {
         timestamp: new Date().toISOString(),
-        version: '1.0',
+        version: '3.0.0',
         data: {}
     };
     
@@ -2418,7 +2418,19 @@ app.get('/api/backup', (req, res) => {
             return;
         }
         
-        backup.data.groups = groups;
+        // تطبيع بيانات المجموعات
+        // Note: Telegram IDs are well within JavaScript's safe integer range (±9 quadrillion)
+        // Max Telegram ID is ~10 billion, so parseInt() is safe without precision loss
+        backup.data.groups = groups.map(group => ({
+            ...group,
+            // التأكد من أن الأرقام هي أرقام وليست نصوص
+            id: parseInt(group.id),
+            chat_id: parseInt(group.chat_id),
+            admin_id: group.admin_id ? parseInt(group.admin_id) : null,
+            bot_enabled: parseInt(group.bot_enabled),
+            is_active: parseInt(group.is_active),
+            is_protected: parseInt(group.is_protected)
+        }));
         
         // استخراج بيانات الأذكار
         db.all("SELECT * FROM adkar", (err, adkar) => {
@@ -2428,7 +2440,19 @@ app.get('/api/backup', (req, res) => {
                 return;
             }
             
-            backup.data.adkar = adkar;
+            // تطبيع بيانات الأذكار
+            backup.data.adkar = adkar.map(item => ({
+                ...item,
+                // التأكد من أن الأرقام هي أرقام وليست نصوص
+                id: parseInt(item.id),
+                category_id: parseInt(item.category_id),
+                is_active: parseInt(item.is_active),
+                priority: parseInt(item.priority),
+                // التأكد من أن مصفوفات JSON هي نصوص وليست كائنات
+                schedule_days: typeof item.schedule_days === 'string' ? item.schedule_days : JSON.stringify(item.schedule_days || [0,1,2,3,4,5,6]),
+                schedule_dates: typeof item.schedule_dates === 'string' ? item.schedule_dates : JSON.stringify(item.schedule_dates || []),
+                schedule_months: typeof item.schedule_months === 'string' ? item.schedule_months : JSON.stringify(item.schedule_months || [])
+            }));
             
             // استخراج بيانات الفئات
             db.all("SELECT * FROM categories", (err, categories) => {
@@ -2436,7 +2460,12 @@ app.get('/api/backup', (req, res) => {
                     console.error('❌ خطأ في استخراج الفئات:', err);
                 }
                 
-                backup.data.categories = categories || [];
+                // تطبيع بيانات الفئات
+                backup.data.categories = (categories || []).map(cat => ({
+                    ...cat,
+                    // التأكد من أن الأرقام هي أرقام وليست نصوص
+                    id: parseInt(cat.id)
+                }));
                 
                 // إرسال النسخة الاحتياطية
                 const filename = `azkar-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
@@ -2766,7 +2795,10 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                 
                 backupData.data.categories.forEach((cat, index) => {
                     try {
-                        catStmt.run([cat.id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
+                        // التأكد من تحويل القيم الرقمية بشكل صحيح
+                        const id = typeof cat.id === 'string' ? parseInt(cat.id) : cat.id;
+                        
+                        catStmt.run([id, cat.name, cat.description, cat.icon, cat.color, cat.created_at]);
                         restored.categories++;
                     } catch (error) {
                         const errorMsg = `فشل استعادة الفئة #${index + 1} (${cat.name}): ${error.message}`;
@@ -2789,6 +2821,12 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                     try {
                         // التوافق مع الأسماء القديمة والجديدة
                         const content_type = adkar.content_type || adkar.type || 'text';
+                        
+                        // التأكد من تحويل القيم الرقمية بشكل صحيح
+                        const id = typeof adkar.id === 'string' ? parseInt(adkar.id) : adkar.id;
+                        const category_id = typeof adkar.category_id === 'string' ? parseInt(adkar.category_id) : adkar.category_id;
+                        const is_active = typeof adkar.is_active === 'string' ? parseInt(adkar.is_active) : (adkar.is_active !== undefined ? adkar.is_active : 1);
+                        const priority = typeof adkar.priority === 'string' ? parseInt(adkar.priority) : (adkar.priority || 1);
                         
                         // تطبيع مصفوفات JSON مع التحقق من الصحة
                         let schedule_days = adkar.schedule_days || adkar.days_of_week || '[0,1,2,3,4,5,6]';
@@ -2820,8 +2858,8 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                         }
                         
                         adkarStmt.run([
-                            adkar.id, 
-                            adkar.category_id, 
+                            id, 
+                            category_id, 
                             adkar.title || null, 
                             adkar.content || null, 
                             content_type,
@@ -2833,8 +2871,8 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                             schedule_dates,
                             schedule_months,
                             adkar.schedule_time || '12:00',
-                            adkar.is_active !== undefined ? adkar.is_active : 1, 
-                            adkar.priority || 1,
+                            is_active, 
+                            priority,
                             adkar.last_sent,
                             adkar.created_at
                         ]);
@@ -2857,10 +2895,25 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
                 
                 backupData.data.groups.forEach((group, index) => {
                     try {
+                        // التأكد من تحويل القيم الرقمية بشكل صحيح
+                        // Note: Telegram IDs are within safe integer range, parseInt() is safe
+                        const id = typeof group.id === 'string' ? parseInt(group.id) : group.id;
+                        const chat_id = typeof group.chat_id === 'string' ? parseInt(group.chat_id) : group.chat_id;
+                        const admin_id = group.admin_id ? (typeof group.admin_id === 'string' ? parseInt(group.admin_id) : group.admin_id) : null;
+                        const bot_enabled = typeof group.bot_enabled === 'string' ? parseInt(group.bot_enabled) : (group.bot_enabled !== undefined ? group.bot_enabled : 1);
+                        const is_active = typeof group.is_active === 'string' ? parseInt(group.is_active) : (group.is_active !== undefined ? group.is_active : 1);
+                        const is_protected = typeof group.is_protected === 'string' ? parseInt(group.is_protected) : (group.is_protected !== undefined ? group.is_protected : 0);
+                        
+                        // التأكد من تطبيع settings
+                        let settings = group.settings || '{}';
+                        if (typeof settings === 'object') {
+                            settings = JSON.stringify(settings);
+                        }
+                        
                         groupStmt.run([
-                            group.id, group.chat_id, group.title, group.admin_id,
-                            group.bot_enabled, group.is_active, group.is_protected,
-                            group.settings, group.created_at
+                            id, chat_id, group.title, admin_id,
+                            bot_enabled, is_active, is_protected,
+                            settings, group.created_at
                         ]);
                         restored.groups++;
                     } catch (error) {
