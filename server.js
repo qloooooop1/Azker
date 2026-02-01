@@ -578,7 +578,7 @@ process.on('unhandledRejection', (reason, promise) => {
 const uploadsDir = process.env.UPLOAD_PATH || path.join(DATA_DIR, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
-    ['audio', 'images', 'pdfs', 'temp'].forEach(dir => {
+    ['audio', 'images', 'videos', 'pdfs', 'temp'].forEach(dir => {
         fs.mkdirSync(path.join(uploadsDir, dir), { recursive: true });
     });
     console.log(`✅ تم إنشاء مجلد الملفات: ${uploadsDir}`);
@@ -689,11 +689,12 @@ db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS adkar (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category_id INTEGER,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL,
+        title TEXT,
+        content TEXT,
         content_type TEXT DEFAULT 'text',
         file_path TEXT,
         file_url TEXT,
+        youtube_url TEXT,
         schedule_type TEXT DEFAULT 'daily', -- daily, weekly, monthly, yearly, specific_days
         schedule_days TEXT DEFAULT '[0,1,2,3,4,5,6]', -- 0=الأحد, 1=الإثنين, ..., 6=السبت
         schedule_dates TEXT DEFAULT '[]', -- أيام الشهر [1,15,30]
@@ -901,6 +902,35 @@ function parseJSONArray(str, defaultValue = []) {
     }
 }
 
+// دالة للتحقق من رابط YouTube
+function isYouTubeUrl(url) {
+    if (!url) return false;
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+    return youtubeRegex.test(url);
+}
+
+// دالة لاستخراج معرف الفيديو من رابط YouTube
+function extractYouTubeVideoId(url) {
+    if (!url) return null;
+    
+    // محاولة استخراج المعرف من أنواع مختلفة من روابط YouTube
+    const patterns = [
+        /youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
+        /youtu\.be\/([a-zA-Z0-9_-]{11})/
+    ];
+    
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+    
+    return null;
+}
+
 function shouldSendToday(adkar) {
     const now = moment();
     const currentDay = now.day(); // 0-6
@@ -947,57 +977,88 @@ async function sendAdkarToGroup(chatId, adkar) {
             return;
         }
 
-        let message = `📌 *${adkar.category_name || 'ذكر'}*\n`;
-        message += `📖 ${adkar.title}\n\n`;
-        message += `${adkar.content}\n\n`;
-        message += `🕒 ${adkar.schedule_time} | 📅 ${moment().format('YYYY/MM/DD')}`;
+        // بناء الرسالة النصية (إذا وجدت)
+        let message = '';
+        if (adkar.title || adkar.content) {
+            if (adkar.category_name) {
+                message += `📌 *${adkar.category_name}*\n`;
+            }
+            if (adkar.title) {
+                message += `📖 ${adkar.title}\n\n`;
+            }
+            if (adkar.content) {
+                message += `${adkar.content}\n\n`;
+            }
+            message += `🕒 ${adkar.schedule_time} | 📅 ${moment().format('YYYY/MM/DD')}`;
+        }
 
         // إرسال المحتوى حسب النوع
         if (adkar.content_type === 'text') {
-            await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            await bot.sendMessage(chatId, message || 'ذكر', { parse_mode: 'Markdown' });
+            
+        } else if (adkar.content_type === 'video') {
+            // معالجة مقاطع الفيديو (YouTube أو ملفات فيديو)
+            if (adkar.youtube_url) {
+                // إرسال رابط YouTube مع رسالة
+                const videoId = extractYouTubeVideoId(adkar.youtube_url);
+                const youtubeMessage = message ? `${message}\n\n🎥 مشاهدة على YouTube:\n${adkar.youtube_url}` : `🎥 ${adkar.youtube_url}`;
+                await bot.sendMessage(chatId, youtubeMessage, { parse_mode: 'Markdown' });
+            } else if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
+                await bot.sendVideo(chatId, path.join(__dirname, adkar.file_path), {
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
+                });
+            } else if (adkar.file_url) {
+                await bot.sendVideo(chatId, adkar.file_url, {
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
+                });
+            } else if (message) {
+                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            }
             
         } else if (adkar.content_type === 'audio') {
             if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
                 await bot.sendAudio(chatId, path.join(__dirname, adkar.file_path), {
-                    caption: message,
-                    parse_mode: 'Markdown'
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
                 });
             } else if (adkar.file_url) {
                 await bot.sendAudio(chatId, adkar.file_url, {
-                    caption: message,
-                    parse_mode: 'Markdown'
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
                 });
-            } else {
+            } else if (message) {
                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
             }
             
         } else if (adkar.content_type === 'image') {
             if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
                 await bot.sendPhoto(chatId, path.join(__dirname, adkar.file_path), {
-                    caption: message,
-                    parse_mode: 'Markdown'
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
                 });
             } else if (adkar.file_url) {
                 await bot.sendPhoto(chatId, adkar.file_url, {
-                    caption: message,
-                    parse_mode: 'Markdown'
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
                 });
-            } else {
+            } else if (message) {
                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
             }
             
         } else if (adkar.content_type === 'pdf') {
             if (adkar.file_path && fs.existsSync(path.join(__dirname, adkar.file_path))) {
                 await bot.sendDocument(chatId, path.join(__dirname, adkar.file_path), {
-                    caption: message,
-                    parse_mode: 'Markdown'
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
                 });
             } else if (adkar.file_url) {
                 await bot.sendDocument(chatId, adkar.file_url, {
-                    caption: message,
-                    parse_mode: 'Markdown'
+                    caption: message || undefined,
+                    parse_mode: message ? 'Markdown' : undefined
                 });
-            } else {
+            } else if (message) {
                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
             }
         }
@@ -1949,15 +2010,19 @@ app.post('/api/adkar', upload.fields([
             schedule_months = '[]',
             schedule_time,
             file_url,
+            youtube_url,
             is_active = 1,
             priority = 1
         } = req.body;
         
         // التحقق من صحة الحقول المطلوبة
-        if (!title || !content) {
+        // السماح بالوسائط بدون نص (media-only posts)
+        const hasMedia = file_url || youtube_url || req.files?.audio_file || req.files?.image_file || req.files?.pdf_file || req.files?.file;
+        
+        if (!title && !content && !hasMedia) {
             return res.status(400).json({ 
-                error: 'العنوان والمحتوى مطلوبان',
-                details: { title: !title, content: !content }
+                error: 'يجب توفير عنوان أو محتوى أو ملف وسائط على الأقل',
+                details: { title: !title, content: !content, hasMedia: false }
             });
         }
         
@@ -1974,14 +2039,28 @@ app.post('/api/adkar', upload.fields([
         
         let file_path = null;
         let final_content_type = content_type;
+        let final_youtube_url = youtube_url || null;
         
-        // تحميل من رابط إذا وجد
-        if (file_url && file_url.startsWith('http')) {
+        // معالجة روابط YouTube
+        if (youtube_url || (file_url && isYouTubeUrl(file_url))) {
+            final_youtube_url = youtube_url || file_url;
+            final_content_type = 'video';
+            // استخراج معرف الفيديو من رابط YouTube
+            const videoId = extractYouTubeVideoId(final_youtube_url);
+            if (!videoId) {
+                return res.status(400).json({ 
+                    error: 'رابط YouTube غير صحيح',
+                    details: { youtube_url: final_youtube_url }
+                });
+            }
+        }
+        // تحميل من رابط إذا وجد ولم يكن YouTube
+        else if (file_url && file_url.startsWith('http')) {
             file_path = await downloadFileFromUrl(file_url, content_type);
         }
         
         // إذا لم يكن هناك رابط، تحقق من الملفات المرفوعة
-        if (!file_path) {
+        if (!file_path && !final_youtube_url) {
             if (req.files?.audio_file) {
                 file_path = `/uploads/audio/${req.files.audio_file[0].filename}`;
                 final_content_type = 'audio';
@@ -2001,6 +2080,9 @@ app.post('/api/adkar', upload.fields([
                 } else if (mime.startsWith('image/')) {
                     file_path = `/uploads/images/${file.filename}`;
                     final_content_type = 'image';
+                } else if (mime.startsWith('video/')) {
+                    file_path = `/uploads/videos/${file.filename}`;
+                    final_content_type = 'video';
                 } else if (mime === 'application/pdf') {
                     file_path = `/uploads/pdfs/${file.filename}`;
                     final_content_type = 'pdf';
@@ -2011,12 +2093,12 @@ app.post('/api/adkar', upload.fields([
         }
         
         db.run(`INSERT INTO adkar (
-            category_id, title, content, content_type, file_path, file_url,
+            category_id, title, content, content_type, file_path, file_url, youtube_url,
             schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time, 
             is_active, priority
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                category_id || null, title, content, final_content_type, file_path, file_url || null,
+                category_id || null, title || '', content || '', final_content_type, file_path, file_url || null, final_youtube_url,
                 schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time || '12:00',
                 is_active, priority
             ],
@@ -2067,9 +2149,24 @@ app.put('/api/adkar/:id', upload.fields([
         
         let file_path = null;
         let content_type = updates.content_type;
+        let youtube_url = updates.youtube_url || null;
         
-        // تحميل من رابط إذا وجد
-        if (updates.file_url && updates.file_url.startsWith('http')) {
+        // معالجة روابط YouTube
+        if (updates.youtube_url || (updates.file_url && isYouTubeUrl(updates.file_url))) {
+            youtube_url = updates.youtube_url || updates.file_url;
+            content_type = 'video';
+            const videoId = extractYouTubeVideoId(youtube_url);
+            if (!videoId) {
+                return res.status(400).json({ 
+                    error: 'رابط YouTube غير صحيح',
+                    details: { youtube_url: youtube_url }
+                });
+            }
+            updates.youtube_url = youtube_url;
+            updates.content_type = content_type;
+        }
+        // تحميل من رابط إذا وجد ولم يكن YouTube
+        else if (updates.file_url && updates.file_url.startsWith('http')) {
             file_path = await downloadFileFromUrl(updates.file_url, content_type);
             if (file_path) {
                 updates.file_path = file_path;
@@ -2095,6 +2192,9 @@ app.put('/api/adkar/:id', upload.fields([
                 } else if (mime.startsWith('image/')) {
                     file_path = `/uploads/images/${file.filename}`;
                     content_type = 'image';
+                } else if (mime.startsWith('video/')) {
+                    file_path = `/uploads/videos/${file.filename}`;
+                    content_type = 'video';
                 } else if (mime === 'application/pdf') {
                     file_path = `/uploads/pdfs/${file.filename}`;
                     content_type = 'pdf';
@@ -2337,17 +2437,35 @@ app.post('/api/restore', upload.single('backupFile'), (req, res) => {
             // استعادة الأذكار (بعد الفئات)
             if (backupData.data.adkar && backupData.data.adkar.length > 0) {
                 const adkarStmt = db.prepare(`INSERT OR REPLACE INTO adkar 
-                    (id, title, content, category_id, type, file_path, file_url, 
-                     schedule_type, schedule_time, days_of_week, repeat_interval, 
-                     is_active, priority, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                    (id, category_id, title, content, content_type, file_path, file_url, youtube_url,
+                     schedule_type, schedule_days, schedule_dates, schedule_months, schedule_time, 
+                     is_active, priority, last_sent, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
                 
                 backupData.data.adkar.forEach(adkar => {
+                    // التوافق مع الأسماء القديمة والجديدة
+                    const content_type = adkar.content_type || adkar.type || 'text';
+                    const schedule_days = adkar.schedule_days || adkar.days_of_week || '[0,1,2,3,4,5,6]';
+                    const schedule_dates = adkar.schedule_dates || '[]';
+                    const schedule_months = adkar.schedule_months || '[]';
+                    
                     adkarStmt.run([
-                        adkar.id, adkar.title, adkar.content, adkar.category_id,
-                        adkar.type, adkar.file_path, adkar.file_url,
-                        adkar.schedule_type, adkar.schedule_time, adkar.days_of_week,
-                        adkar.repeat_interval, adkar.is_active, adkar.priority,
+                        adkar.id, 
+                        adkar.category_id, 
+                        adkar.title || '', 
+                        adkar.content || '', 
+                        content_type,
+                        adkar.file_path, 
+                        adkar.file_url,
+                        adkar.youtube_url || null,
+                        adkar.schedule_type || 'daily', 
+                        schedule_days,
+                        schedule_dates,
+                        schedule_months,
+                        adkar.schedule_time || '12:00',
+                        adkar.is_active !== undefined ? adkar.is_active : 1, 
+                        adkar.priority || 1,
+                        adkar.last_sent,
                         adkar.created_at
                     ]);
                     restored.adkar++;
