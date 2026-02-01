@@ -3155,13 +3155,17 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     } catch (error) {
         console.error('❌ خطأ في استعادة النسخة الاحتياطية:', error);
         
+        // Log full error details to server console for debugging
+        if (process.env.NODE_ENV === 'development') {
+            console.error('Stack trace:', error.stack);
+        }
+        
         // Make sure we always send a valid JSON response
         if (!responseSent) {
             responseSent = true;
             res.status(500).json({ 
                 error: 'خطأ في معالجة ملف النسخة الاحتياطية',
                 details: error.message,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
                 suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
             });
         }
