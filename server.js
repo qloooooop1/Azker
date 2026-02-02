@@ -2970,8 +2970,8 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                 details: parseError.message,
                 // Note: Position extraction attempts to parse V8-style error messages
                 // (e.g., "Unexpected token } in JSON at position 42")
-                // and is unlikely to work on other JavaScript engines (JSC, SpiderMonkey, etc.)
-                position: parseError.message.match(/at position (\d+)/)?.[1] || 'غير محدد',
+                // Handles variations in V8 error format
+                position: parseError.message.match(/(?:at position|position) (\d+)/)?.[1] || 'غير محدد',
                 suggestion: 'الملف يحتوي على بناء JSON غير صحيح. تحقق من الأقواس والفواصل'
             });
             return;
@@ -3008,7 +3008,13 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             
             // Log checksum with reduced exposure (only in dev mode or truncated)
             if (process.env.NODE_ENV === 'development') {
-                console.log(`   Stored checksum: ${backupData.metadata.checksum.substring(0, 8)}...`);
+                // Type check to prevent crashes if checksum is malformed
+                const checksum = backupData.metadata.checksum;
+                if (typeof checksum === 'string' && checksum.length >= 8) {
+                    console.log(`   Stored checksum: ${checksum.substring(0, 8)}...`);
+                } else {
+                    console.log(`   Stored checksum: [invalid format]`);
+                }
             } else {
                 console.log(`   Stored checksum: [hidden for security]`);
             }
@@ -3031,7 +3037,11 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                 // Only include minimal checksum info in development mode to prevent information leakage
                 // Reduced to 8 characters (12.5% of hash) to minimize attack surface
                 if (process.env.NODE_ENV === 'development') {
-                    errorResponse.checksumStored = backupData.metadata.checksum.substring(0, 8) + '...';
+                    // Type check to prevent crashes if checksum is malformed
+                    const checksum = backupData.metadata.checksum;
+                    if (typeof checksum === 'string' && checksum.length >= 8) {
+                        errorResponse.checksumStored = checksum.substring(0, 8) + '...';
+                    }
                 }
                 
                 sendJSONResponse(400, errorResponse);
