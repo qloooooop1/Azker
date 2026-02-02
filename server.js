@@ -3007,7 +3007,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             
             // Log checksum with reduced exposure (only in dev mode or truncated)
             if (process.env.NODE_ENV === 'development') {
-                console.log(`   Stored checksum: ${storedChecksum.substring(0, 8)}...`);
+                console.log(`   Stored checksum: ${backupData.metadata.checksum.substring(0, 8)}...`);
             } else {
                 console.log(`   Stored checksum: [hidden for security]`);
             }
