@@ -628,6 +628,7 @@ const upload = multer({
             'image_file': ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
             'video_file': ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm'],
             'pdf_file': ['application/pdf'],
+            'backupFile': ['application/json', 'application/octet-stream', 'text/plain'],
             'file': ['audio/*', 'image/*', 'video/*', 'application/pdf']
         };
         
@@ -635,8 +636,13 @@ const upload = multer({
         if (allowedTypes[fileType] && 
             (allowedTypes[fileType].includes(file.mimetype) || 
              allowedTypes[fileType].some(type => type.endsWith('/*') && file.mimetype.startsWith(type.split('/*')[0])))) {
+            // Log file metadata for debugging (especially for backup files)
+            if (fileType === 'backupFile') {
+                console.log(`📤 Backup file upload - Name: ${file.originalname}, Type: ${file.mimetype}, Size: ${file.size || 'unknown'} bytes`);
+            }
             cb(null, true);
         } else {
+            console.warn(`⚠️  File upload rejected - Field: ${fileType}, Type: ${file.mimetype}, Name: ${file.originalname}`);
             cb(new Error(`نوع الملف غير مسموح: ${file.mimetype}`), false);
         }
     }
@@ -2882,6 +2888,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     };
     
     if (!req.file) {
+        console.error('❌ خطأ: لم يتم استلام ملف النسخة الاحتياطية');
         sendJSONResponse(400, { 
             error: 'لم يتم رفع ملف النسخة الاحتياطية',
             suggestion: 'يرجى اختيار ملف النسخة الاحتياطية والمحاولة مرة أخرى'
@@ -2889,11 +2896,22 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         return;
     }
     
+    // Log detailed file metadata for debugging
+    console.log('📦 File metadata:', {
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        encoding: req.file.encoding
+    });
+    
     // التحقق من حجم الملف (حد أقصى 10MB)
     const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     if (req.file.size > MAX_FILE_SIZE) {
+        console.error(`❌ حجم الملف كبير جداً: ${req.file.size} bytes (الحد الأقصى: ${MAX_FILE_SIZE} bytes)`);
         sendJSONResponse(400, { 
             error: 'حجم الملف كبير جداً. الحد الأقصى هو 10MB',
+            fileSize: req.file.size,
+            maxSize: MAX_FILE_SIZE,
             suggestion: 'يرجى استخدام ملف نسخة احتياطية أصغر أو تقسيم البيانات'
         });
         return;
@@ -2901,11 +2919,19 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     
     // التحقق من امتداد الملف
     if (!req.file.originalname.toLowerCase().endsWith('.json')) {
+        console.error(`❌ امتداد الملف غير صحيح: ${req.file.originalname}`);
         sendJSONResponse(400, { 
             error: 'نوع الملف غير صحيح',
+            fileName: req.file.originalname,
             suggestion: 'يجب أن يكون الملف بصيغة JSON (ينتهي بـ .json)'
         });
         return;
+    }
+    
+    // التحقق من نوع MIME
+    const allowedMimeTypes = ['application/json', 'application/octet-stream', 'text/plain'];
+    if (!allowedMimeTypes.includes(req.file.mimetype)) {
+        console.warn(`⚠️  تحذير: نوع MIME غير متوقع: ${req.file.mimetype} (سيتم المتابعة مع التحقق من المحتوى)`);
     }
     
     let backupData;
