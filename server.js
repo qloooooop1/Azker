@@ -2969,8 +2969,9 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                 error: 'فشل تحويل محتوى JSON',
                 details: parseError.message,
                 // Note: Position extraction attempts to parse V8-style error messages
+                // (e.g., "Unexpected token } in JSON at position 42")
                 // and is unlikely to work on other JavaScript engines (JSC, SpiderMonkey, etc.)
-                position: parseError.message.match(/position (\d+)/)?.[1] || 'غير محدد',
+                position: parseError.message.match(/at position (\d+)/)?.[1] || 'غير محدد',
                 suggestion: 'الملف يحتوي على بناء JSON غير صحيح. تحقق من الأقواس والفواصل'
             });
             return;
@@ -3042,7 +3043,8 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             console.log('='.repeat(60) + '\n');
         } else {
             console.log('\n⚠️  تحذير: النسخة الاحتياطية لا تحتوي على checksum');
-            console.log('   يُنصح باستخدام نسخ احتياطية تحتوي على checksum للتحقق من السلامة\n');
+            console.log('   ملاحظة: النسخ الاحتياطية بدون checksum ستُقبل ولكن لا يمكن التحقق من سلامتها');
+            console.log('   يُنصح بشدة باستخدام نسخ احتياطية تحتوي على SHA-256 checksum للحماية من التلاعب\n');
         }
         
         // المرحلة 4: التحقق الشامل من البيانات مع تسجيل مفصل
