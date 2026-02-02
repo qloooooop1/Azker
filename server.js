@@ -15,6 +15,7 @@ const schedule = require('node-schedule');
 const backupVersionManager = require('./lib/backup-version-manager');
 const backupValidator = require('./lib/backup-validator');
 const backupDiagnostic = require('./lib/backup-diagnostic');
+const backupMetadata = require('./lib/backup-metadata');
 
 // ========== إعدادات التطبيق ==========
 const app = express();
@@ -2409,11 +2410,7 @@ app.post('/api/test-send/:chatId/:adkarId', async (req, res) => {
 app.get('/api/backup', (req, res) => {
     console.log('💾 بدء إنشاء نسخة احتياطية...');
     
-    const backup = {
-        timestamp: new Date().toISOString(),
-        version: '3.0.0',
-        data: {}
-    };
+    const data = {};
     
     // استخراج بيانات المجموعات
     db.all("SELECT * FROM groups", (err, groups) => {
@@ -2426,7 +2423,7 @@ app.get('/api/backup', (req, res) => {
         // تطبيع بيانات المجموعات
         // Note: Telegram IDs are well within JavaScript's safe integer range (±9 quadrillion)
         // Max Telegram ID is ~10 billion, so parseInt() is safe without precision loss
-        backup.data.groups = groups.map(group => ({
+        data.groups = groups.map(group => ({
             ...group,
             // التأكد من أن الأرقام هي أرقام وليست نصوص
             id: parseInt(group.id),
@@ -2446,7 +2443,7 @@ app.get('/api/backup', (req, res) => {
             }
             
             // تطبيع بيانات الأذكار
-            backup.data.adkar = adkar.map(item => ({
+            data.adkar = adkar.map(item => ({
                 ...item,
                 // التأكد من أن الأرقام هي أرقام وليست نصوص
                 id: parseInt(item.id),
@@ -2466,11 +2463,17 @@ app.get('/api/backup', (req, res) => {
                 }
                 
                 // تطبيع بيانات الفئات
-                backup.data.categories = (categories || []).map(cat => ({
+                data.categories = (categories || []).map(cat => ({
                     ...cat,
                     // التأكد من أن الأرقام هي أرقام وليست نصوص
                     id: parseInt(cat.id)
                 }));
+                
+                // Get optional description from query params
+                const description = req.query.description || 'نسخة احتياطية للنظام';
+                
+                // Create backup with enhanced metadata
+                const backup = backupMetadata.createBackupWithMetadata(data, description);
                 
                 // إرسال النسخة الاحتياطية
                 const filename = `azkar-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
@@ -2479,12 +2482,81 @@ app.get('/api/backup', (req, res) => {
                 res.json(backup);
                 
                 console.log(`✅ تم إنشاء نسخة احتياطية بنجاح: ${filename}`);
-                console.log(`   📊 المجموعات: ${backup.data.groups.length}`);
-                console.log(`   📿 الأذكار: ${backup.data.adkar.length}`);
-                console.log(`   🏷️ الفئات: ${backup.data.categories.length}`);
+                console.log(`   📊 المجموعات: ${data.groups.length}`);
+                console.log(`   📿 الأذكار: ${data.adkar.length}`);
+                console.log(`   🏷️ الفئات: ${data.categories.length}`);
+                console.log(`   🔐 Checksum: ${backup.metadata.checksum.substring(0, 16)}...`);
+                console.log(`   📦 Size: ${backup.metadata.statistics.formattedSize}`);
             });
         });
     });
+});
+
+// ========== API لمعاينة معلومات النسخة الاحتياطية ==========
+app.post('/api/backup/preview', upload.single('backupFile'), async (req, res) => {
+    console.log('👁️ بدء معاينة النسخة الاحتياطية...');
+    
+    if (!req.file) {
+        res.status(400).json({ 
+            error: 'لم يتم رفع ملف النسخة الاحتياطية',
+            suggestion: 'يرجى اختيار ملف النسخة الاحتياطية والمحاولة مرة أخرى'
+        });
+        return;
+    }
+    
+    try {
+        // Parse backup file
+        const fileContent = req.file.buffer.toString('utf8');
+        const jsonValidation = backupValidator.isValidJSON(fileContent);
+        
+        if (!jsonValidation.valid) {
+            res.status(400).json({ 
+                error: jsonValidation.error,
+                details: jsonValidation.details,
+                suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف'
+            });
+            return;
+        }
+        
+        const backupData = JSON.parse(fileContent);
+        
+        // Extract metadata
+        const metadata = backupMetadata.extractMetadata(backupData);
+        
+        // Detect version
+        const detectedVersion = backupVersionManager.detectBackupVersion(backupData);
+        
+        // Validate checksum if present
+        let checksumStatus = 'غير متوفر';
+        if (metadata.hasChecksum) {
+            checksumStatus = metadata.checksumValid ? 'صالح ✅' : 'غير صالح ⚠️';
+        }
+        
+        // Send preview data
+        res.json({
+            success: true,
+            metadata: metadata,
+            detectedVersion: detectedVersion,
+            checksumStatus: checksumStatus,
+            fileSize: req.file.size,
+            formattedFileSize: backupMetadata.formatBytes(req.file.size),
+            fileName: req.file.originalname
+        });
+        
+        console.log('✅ تمت معاينة النسخة الاحتياطية بنجاح');
+        console.log(`   📦 الإصدار: ${detectedVersion}`);
+        console.log(`   📊 المجموعات: ${metadata.statistics.groups}`);
+        console.log(`   📿 الأذكار: ${metadata.statistics.adkar}`);
+        console.log(`   🏷️ الفئات: ${metadata.statistics.categories}`);
+        
+    } catch (error) {
+        console.error('❌ خطأ في معاينة النسخة الاحتياطية:', error);
+        res.status(500).json({
+            error: 'خطأ في معاينة ملف النسخة الاحتياطية',
+            details: error.message,
+            suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
+        });
+    }
 });
 
 // ========== دوال التحقق من صحة النسخة الاحتياطية ==========
@@ -2867,7 +2939,32 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         
         console.log('='.repeat(60) + '\n');
         
-        // المرحلة 3: التحقق الشامل من البيانات مع تسجيل مفصل
+        // المرحلة 3: التحقق من Checksum إذا كان موجوداً
+        if (backupData.metadata && backupData.metadata.checksum) {
+            console.log('\n' + '='.repeat(60));
+            console.log('🔐 Checksum Verification');
+            console.log('='.repeat(60));
+            
+            const checksumValid = backupMetadata.verifyChecksum(backupData);
+            
+            if (!checksumValid) {
+                console.warn('⚠️ تحذير: فشل التحقق من checksum');
+                console.warn('   قد يكون الملف معدلاً أو تالفاً');
+                
+                // Add warning but don't fail (allow recovery from edited backups)
+                validation.warnings.push({
+                    message: 'فشل التحقق من checksum - قد يكون الملف معدلاً',
+                    field: 'metadata.checksum',
+                    severity: 'medium'
+                });
+            } else {
+                console.log('✅ تم التحقق من checksum بنجاح');
+            }
+            
+            console.log('='.repeat(60) + '\n');
+        }
+        
+        // المرحلة 4: التحقق الشامل من البيانات مع تسجيل مفصل
         console.log('\n' + '='.repeat(60));
         console.log('🔍 Detailed Backup Validation');
         console.log('='.repeat(60));

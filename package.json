@@ -8,8 +8,9 @@
     "dev": "nodemon server.js",
     "test": "node test-backup-validation.js",
     "test:validation": "node test-backup-validation.js",
+    "test:metadata": "node test-backup-metadata.js",
     "test:restore": "node test-restore-error-handling.js && node test-integration-restore.js",
-    "test:all": "npm run test:validation && npm run test:restore",
+    "test:all": "npm run test:validation && npm run test:metadata && npm run test:restore",
     "diagnose": "node diagnose-backup.js"
   },
   "dependencies": {
