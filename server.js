@@ -2896,13 +2896,18 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         return;
     }
     
-    // Log detailed file metadata for debugging
-    console.log('📦 File metadata:', {
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-        encoding: req.file.encoding
-    });
+    // Log detailed file metadata for debugging (only in development mode)
+    if (process.env.NODE_ENV === 'development') {
+        console.log('📦 File metadata:', {
+            originalName: req.file.originalname,
+            mimeType: req.file.mimetype,
+            size: req.file.size,
+            encoding: req.file.encoding
+        });
+    } else {
+        // In production, log only essential information
+        console.log(`📦 Backup file received: ${req.file.size} bytes, type: ${req.file.mimetype}`);
+    }
     
     // التحقق من حجم الملف (حد أقصى 10MB)
     const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -2928,10 +2933,12 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         return;
     }
     
-    // التحقق من نوع MIME
+    // التحقق من نوع MIME - track unexpected types for monitoring
     const allowedMimeTypes = ['application/json', 'application/octet-stream', 'text/plain'];
     if (!allowedMimeTypes.includes(req.file.mimetype)) {
-        console.warn(`⚠️  تحذير: نوع MIME غير متوقع: ${req.file.mimetype} (سيتم المتابعة مع التحقق من المحتوى)`);
+        // Log warning with metrics tracking potential
+        console.warn(`⚠️  [MIME_MISMATCH] نوع MIME غير متوقع: ${req.file.mimetype} من ملف: ${req.file.originalname} (سيتم المتابعة مع التحقق من المحتوى)`);
+        // This can be tracked by monitoring systems looking for [MIME_MISMATCH] pattern
     }
     
     let backupData;
