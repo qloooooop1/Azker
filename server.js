@@ -2968,7 +2968,8 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             sendJSONResponse(400, { 
                 error: 'فشل تحويل محتوى JSON',
                 details: parseError.message,
-                // Note: Position extraction is best-effort and may not work on all JS engines
+                // Note: Position extraction attempts to parse V8-style error messages
+                // and is unlikely to work on other JavaScript engines (JSC, SpiderMonkey, etc.)
                 position: parseError.message.match(/position (\d+)/)?.[1] || 'غير محدد',
                 suggestion: 'الملف يحتوي على بناء JSON غير صحيح. تحقق من الأقواس والفواصل'
             });
@@ -3004,8 +3005,12 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             console.log('🔐 SHA-256 Checksum Verification');
             console.log('='.repeat(60));
             
-            const storedChecksum = backupData.metadata.checksum;
-            console.log(`   Stored checksum: ${storedChecksum.substring(0, 16)}...`);
+            // Log checksum with reduced exposure (only in dev mode or truncated)
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`   Stored checksum: ${storedChecksum.substring(0, 8)}...`);
+            } else {
+                console.log(`   Stored checksum: [hidden for security]`);
+            }
             
             const checksumValid = backupMetadata.verifyChecksum(backupData);
             
@@ -3022,9 +3027,10 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                     securityNote: 'تم رفض الملف لأسباب أمنية - التوقيع الرقمي غير صحيح'
                 };
                 
-                // Only include checksum details in development mode to prevent information leakage
+                // Only include minimal checksum info in development mode to prevent information leakage
+                // Reduced to 8 characters (12.5% of hash) to minimize attack surface
                 if (process.env.NODE_ENV === 'development') {
-                    errorResponse.checksumStored = storedChecksum.substring(0, 16) + '...';
+                    errorResponse.checksumStored = backupData.metadata.checksum.substring(0, 8) + '...';
                 }
                 
                 sendJSONResponse(400, errorResponse);
