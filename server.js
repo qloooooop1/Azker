@@ -2866,11 +2866,26 @@ app.post('/api/validate-backup', upload.single('backupFile'), (req, res) => {
 app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     console.log('🔄 بدء استعادة النسخة الاحتياطية...');
     
+    // Set proper response headers for JSON
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    
     // Track if response has been sent to prevent multiple responses
     let responseSent = false;
     
+    // Helper function to send safe JSON responses
+    const sendJSONResponse = (statusCode, data) => {
+        if (!responseSent) {
+            responseSent = true;
+            // Clear any buffered output to prevent response corruption
+            if (res.headersSent === false) {
+                res.status(statusCode);
+            }
+            res.json(data);
+        }
+    };
+    
     if (!req.file) {
-        res.status(400).json({ 
+        sendJSONResponse(400, { 
             error: 'لم يتم رفع ملف النسخة الاحتياطية',
             suggestion: 'يرجى اختيار ملف النسخة الاحتياطية والمحاولة مرة أخرى'
         });
@@ -2880,7 +2895,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     // التحقق من حجم الملف (حد أقصى 10MB)
     const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     if (req.file.size > MAX_FILE_SIZE) {
-        res.status(400).json({ 
+        sendJSONResponse(400, { 
             error: 'حجم الملف كبير جداً. الحد الأقصى هو 10MB',
             suggestion: 'يرجى استخدام ملف نسخة احتياطية أصغر أو تقسيم البيانات'
         });
@@ -2889,7 +2904,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     
     // التحقق من امتداد الملف
     if (!req.file.originalname.toLowerCase().endsWith('.json')) {
-        res.status(400).json({ 
+        sendJSONResponse(400, { 
             error: 'نوع الملف غير صحيح',
             suggestion: 'يجب أن يكون الملف بصيغة JSON (ينتهي بـ .json)'
         });
@@ -2897,24 +2912,64 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     }
     
     let backupData;
+    let fileContent;
     
     try {
-        // المرحلة 1: التحقق من صحة JSON
-        const fileContent = req.file.buffer.toString('utf8');
+        // المرحلة 1: التحقق من ترميز UTF-8 وصحة JSON
+        try {
+            // Force UTF-8 encoding and validate buffer
+            fileContent = req.file.buffer.toString('utf8');
+            
+            // Detect and remove BOM if present
+            if (fileContent.charCodeAt(0) === 0xFEFF) {
+                fileContent = fileContent.substring(1);
+                console.log('ℹ️  تم إزالة BOM من الملف');
+            }
+            
+            // Trim whitespace and control characters
+            fileContent = fileContent.trim();
+            
+            // Validate that we have non-empty content
+            if (!fileContent || fileContent.length === 0) {
+                throw new Error('الملف فارغ');
+            }
+        } catch (encodingError) {
+            console.error('❌ خطأ في قراءة الملف:', encodingError.message);
+            sendJSONResponse(400, { 
+                error: 'فشل قراءة محتوى الملف',
+                details: encodingError.message,
+                suggestion: 'تأكد من أن الملف بترميز UTF-8 وغير تالف'
+            });
+            return;
+        }
+        
+        // المرحلة 2: التحقق من صحة JSON
         const jsonValidation = backupValidator.isValidJSON(fileContent);
         
         if (!jsonValidation.valid) {
             console.error('❌ خطأ في تحليل JSON:', jsonValidation.details);
-            res.status(400).json({ 
+            sendJSONResponse(400, { 
                 error: jsonValidation.error,
                 details: jsonValidation.details,
-                suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف'
+                suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف',
+                technicalInfo: 'JSON parsing failed - file may be corrupted or contain invalid JSON syntax'
             });
             return;
         }
         
         // قراءة محتوى الملف
-        backupData = JSON.parse(fileContent);
+        try {
+            backupData = JSON.parse(fileContent);
+        } catch (parseError) {
+            console.error('❌ خطأ في تحويل JSON:', parseError.message);
+            sendJSONResponse(400, { 
+                error: 'فشل تحويل محتوى JSON',
+                details: parseError.message,
+                position: parseError.message.match(/position (\d+)/)?.[1] || 'unknown',
+                suggestion: 'الملف يحتوي على بناء JSON غير صحيح. تحقق من الأقواس والفواصل'
+            });
+            return;
+        }
         
         // المرحلة 2: اكتشاف الإصدار والترحيل التلقائي
         console.log('\n' + '='.repeat(60));
@@ -2929,7 +2984,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             backupData = backupVersionManager.migrateToCurrentVersion(backupData, console);
         } catch (migrationError) {
             console.error('❌ خطأ في ترحيل النسخة الاحتياطية:', migrationError.message);
-            res.status(400).json({ 
+            sendJSONResponse(400, { 
                 error: 'فشل ترحيل النسخة الاحتياطية',
                 details: migrationError.message,
                 suggestion: 'الملف يستخدم إصداراً غير مدعوم. الإصدارات المدعومة: ' + backupVersionManager.SUPPORTED_VERSIONS.join(', ')
@@ -2939,29 +2994,39 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         
         console.log('='.repeat(60) + '\n');
         
-        // المرحلة 3: التحقق من Checksum إذا كان موجوداً
+        // المرحلة 3: التحقق المعزز من Checksum (SHA-256)
         if (backupData.metadata && backupData.metadata.checksum) {
             console.log('\n' + '='.repeat(60));
-            console.log('🔐 Checksum Verification');
+            console.log('🔐 SHA-256 Checksum Verification');
             console.log('='.repeat(60));
+            
+            const storedChecksum = backupData.metadata.checksum;
+            console.log(`   Stored checksum: ${storedChecksum.substring(0, 16)}...`);
             
             const checksumValid = backupMetadata.verifyChecksum(backupData);
             
             if (!checksumValid) {
-                console.warn('⚠️ تحذير: فشل التحقق من checksum');
-                console.warn('   قد يكون الملف معدلاً أو تالفاً');
+                console.error('❌ فشل التحقق من checksum');
+                console.error('   قد يكون الملف معدلاً أو تالفاً');
                 
-                // Add warning but don't fail (allow recovery from edited backups)
-                validation.warnings.push({
-                    message: 'فشل التحقق من checksum - قد يكون الملف معدلاً',
-                    field: 'metadata.checksum',
-                    severity: 'medium'
+                // For security, we'll reject backups with invalid checksums
+                // This prevents restoration of potentially corrupted or tampered data
+                sendJSONResponse(400, { 
+                    error: 'فشل التحقق من سلامة النسخة الاحتياطية',
+                    details: 'SHA-256 checksum validation failed',
+                    checksumStored: storedChecksum.substring(0, 16) + '...',
+                    suggestion: 'الملف قد يكون معدلاً أو تالفاً. استخدم نسخة احتياطية أصلية غير معدلة',
+                    securityNote: 'تم رفض الملف لأسباب أمنية - التوقيع الرقمي غير صحيح'
                 });
+                return;
             } else {
-                console.log('✅ تم التحقق من checksum بنجاح');
+                console.log('✅ تم التحقق من SHA-256 checksum بنجاح');
             }
             
             console.log('='.repeat(60) + '\n');
+        } else {
+            console.log('\n⚠️  تحذير: النسخة الاحتياطية لا تحتوي على checksum');
+            console.log('   يُنصح باستخدام نسخ احتياطية تحتوي على checksum للتحقق من السلامة\n');
         }
         
         // المرحلة 4: التحقق الشامل من البيانات مع تسجيل مفصل
@@ -3014,14 +3079,6 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         };
         
         const restorationErrors = [];
-        
-        // Helper function to send response safely
-        const sendResponse = (statusCode, responseData) => {
-            if (!responseSent) {
-                responseSent = true;
-                res.status(statusCode).json(responseData);
-            }
-        };
         
         db.serialize(() => {
             // استعادة الفئات أولاً (إذا وجدت)
@@ -3177,7 +3234,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                     groupStmt.finalize((finalizeErr) => {
                         if (finalizeErr) {
                             console.error('❌ خطأ في إغلاق prepared statement:', finalizeErr);
-                            sendResponse(500, {
+                            sendJSONResponse(500, {
                                 error: 'خطأ في إتمام عملية الاستعادة',
                                 details: finalizeErr.message
                             });
@@ -3198,7 +3255,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                             response.suggestion = 'تم استعادة معظم البيانات، ولكن فشلت بعض العناصر. يرجى مراجعة الأخطاء أعلاه.';
                         }
                         
-                        sendResponse(200, response);
+                        sendJSONResponse(200, response);
                         
                         console.log('✅ تمت عملية الاستعادة');
                         console.log(`   📊 المجموعات: ${restored.groups}`);
@@ -3214,7 +3271,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                     restorationErrors.push(errorMsg);
                     
                     // إرسال الاستجابة حتى في حالة الفشل
-                    sendResponse(500, {
+                    sendJSONResponse(500, {
                         error: 'فشل استعادة المجموعات',
                         details: prepareError.message,
                         restored: restored,
@@ -3237,7 +3294,7 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                     response.suggestion = 'تم استعادة معظم البيانات، ولكن فشلت بعض العناصر. يرجى مراجعة الأخطاء أعلاه.';
                 }
                 
-                sendResponse(200, response);
+                sendJSONResponse(200, response);
                 
                 console.log('✅ تمت عملية الاستعادة');
                 console.log(`   📊 المجموعات: ${restored.groups}`);
@@ -3257,15 +3314,13 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             console.error('Stack trace:', error.stack);
         }
         
-        // Make sure we always send a valid JSON response
-        if (!responseSent) {
-            responseSent = true;
-            res.status(500).json({ 
-                error: 'خطأ في معالجة ملف النسخة الاحتياطية',
-                details: error.message,
-                suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
-            });
-        }
+        // Make sure we always send a valid JSON response with proper headers
+        sendJSONResponse(500, { 
+            error: 'خطأ في معالجة ملف النسخة الاحتياطية',
+            details: error.message,
+            suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام',
+            technicalInfo: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 
