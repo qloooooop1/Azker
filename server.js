@@ -2951,11 +2951,6 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                 suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف'
             };
             
-            // Only include technical details in development mode
-            if (process.env.NODE_ENV === 'development') {
-                errorResponse.technicalInfo = 'JSON parsing failed - file may be corrupted or contain invalid JSON syntax';
-            }
-            
             sendJSONResponse(400, errorResponse);
             return;
         }
@@ -3025,11 +3020,14 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                 console.error('❌ فشل التحقق من checksum');
                 console.error('   قد يكون الملف معدلاً أو تالفاً');
                 
-                // For security, we'll reject backups with invalid checksums
-                // This prevents restoration of potentially corrupted or tampered data
+                // SECURITY CHANGE: Reject backups with invalid checksums
+                // Previous behavior: warned but allowed restoration
+                // New behavior: strict rejection for security
+                // Rationale: Prevents restoration of tampered/corrupted data
+                // Note: Backups without checksums are still accepted for backward compatibility
                 const errorResponse = { 
                     error: 'فشل التحقق من سلامة النسخة الاحتياطية',
-                    details: 'SHA-256 checksum validation failed',
+                    details: 'SHA-256 checksum validation failed - data may be tampered or corrupted',
                     suggestion: 'الملف قد يكون معدلاً أو تالفاً. استخدم نسخة احتياطية أصلية غير معدلة',
                     securityNote: 'تم رفض الملف لأسباب أمنية - التوقيع الرقمي غير صحيح'
                 };
@@ -3343,12 +3341,18 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         }
         
         // Make sure we always send a valid JSON response with proper headers
-        sendJSONResponse(500, { 
+        const errorResponse = { 
             error: 'خطأ في معالجة ملف النسخة الاحتياطية',
             details: error.message,
-            suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام',
-            technicalInfo: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+            suggestion: 'يرجى التحقق من أن الملف صحيح ومتوافق مع النظام'
+        };
+        
+        // Only include stack trace in development mode
+        if (process.env.NODE_ENV === 'development') {
+            errorResponse.technicalInfo = error.stack;
+        }
+        
+        sendJSONResponse(500, errorResponse);
     }
 });
 
