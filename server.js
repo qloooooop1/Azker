@@ -2876,11 +2876,8 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
     const sendJSONResponse = (statusCode, data) => {
         if (!responseSent) {
             responseSent = true;
-            // Clear any buffered output to prevent response corruption
-            if (res.headersSent === false) {
-                res.status(statusCode);
-            }
-            res.json(data);
+            // Set status and send JSON in a single operation to prevent race conditions
+            res.status(statusCode).json(data);
         }
     };
     
@@ -2948,12 +2945,18 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
         
         if (!jsonValidation.valid) {
             console.error('❌ خطأ في تحليل JSON:', jsonValidation.details);
-            sendJSONResponse(400, { 
+            const errorResponse = { 
                 error: jsonValidation.error,
                 details: jsonValidation.details,
-                suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف',
-                technicalInfo: 'JSON parsing failed - file may be corrupted or contain invalid JSON syntax'
-            });
+                suggestion: 'تأكد من أن الملف هو ملف JSON صحيح وغير تالف'
+            };
+            
+            // Only include technical details in development mode
+            if (process.env.NODE_ENV === 'development') {
+                errorResponse.technicalInfo = 'JSON parsing failed - file may be corrupted or contain invalid JSON syntax';
+            }
+            
+            sendJSONResponse(400, errorResponse);
             return;
         }
         
@@ -2965,7 +2968,8 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
             sendJSONResponse(400, { 
                 error: 'فشل تحويل محتوى JSON',
                 details: parseError.message,
-                position: parseError.message.match(/position (\d+)/)?.[1] || 'unknown',
+                // Note: Position extraction is best-effort and may not work on all JS engines
+                position: parseError.message.match(/position (\d+)/)?.[1] || 'غير محدد',
                 suggestion: 'الملف يحتوي على بناء JSON غير صحيح. تحقق من الأقواس والفواصل'
             });
             return;
@@ -3011,13 +3015,19 @@ app.post('/api/restore', upload.single('backupFile'), async (req, res) => {
                 
                 // For security, we'll reject backups with invalid checksums
                 // This prevents restoration of potentially corrupted or tampered data
-                sendJSONResponse(400, { 
+                const errorResponse = { 
                     error: 'فشل التحقق من سلامة النسخة الاحتياطية',
                     details: 'SHA-256 checksum validation failed',
-                    checksumStored: storedChecksum.substring(0, 16) + '...',
                     suggestion: 'الملف قد يكون معدلاً أو تالفاً. استخدم نسخة احتياطية أصلية غير معدلة',
                     securityNote: 'تم رفض الملف لأسباب أمنية - التوقيع الرقمي غير صحيح'
-                });
+                };
+                
+                // Only include checksum details in development mode to prevent information leakage
+                if (process.env.NODE_ENV === 'development') {
+                    errorResponse.checksumStored = storedChecksum.substring(0, 16) + '...';
+                }
+                
+                sendJSONResponse(400, errorResponse);
                 return;
             } else {
                 console.log('✅ تم التحقق من SHA-256 checksum بنجاح');
